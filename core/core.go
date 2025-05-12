@@ -5,6 +5,7 @@ import (
 	"WuKong/logger"
 	"WuKong/pool"
 	"WuKong/store"
+	"sync"
 	"time"
 )
 
@@ -20,14 +21,16 @@ type Core struct {
 	retriever       *Retriever
 	commitor        *Commitor
 	localDAG        *LocalDAG
+	Aggreator       *Aggreator
 	loopBackChannel chan *Block
 	commitChannel   chan<- *Block
 	proposedFlag    map[int]struct{}
-	// startABA        chan *ABAid
-	// abaInstances    map[int]map[NodeID]*ABA
-	// abaInvokeFlag   map[int64]map[int64]map[int64]map[uint8]struct{} //aba invoke flag
-	// abaCallBack     chan *ABABack
-	delayRoundCh chan int
+	startABA        chan *ABAid
+	abaInstances    map[int]map[NodeID]*ABA
+	muABAIvokeFlag  *sync.RWMutex
+	abaInvokeFlag   map[int]map[NodeID]map[int]map[uint8]struct{} //aba invoke flag  round Slot inround flag
+	abaCallBack     chan *ABABack
+	delayRoundCh    chan int
 }
 
 func NewCore(
@@ -41,7 +44,7 @@ func NewCore(
 	commitChannel chan<- *Block,
 ) *Core {
 	loopBackChannel := make(chan *Block, 1_000)
-	// startABA := make(chan *ABAid, 1000)
+	startABA := make(chan *ABAid, 1000)
 	corer := &Core{
 		nodeID:          nodeID,
 		committee:       committee,
@@ -54,16 +57,18 @@ func NewCore(
 		loopBackChannel: loopBackChannel,
 		commitChannel:   commitChannel,
 		localDAG:        NewLocalDAG(store, committee),
+		Aggreator:       NewAggreator(committee, sigService),
 		proposedFlag:    make(map[int]struct{}),
-		// startABA:        startABA,
-		// abaInstances:    make(map[int]map[NodeID]*ABA),
-		// abaInvokeFlag:   make(map[int64]map[int64]map[int64]map[uint8]struct{}),
-		// abaCallBack:     make(chan *ABABack),
-		delayRoundCh: make(chan int, 100),
+		startABA:        startABA,
+		abaInstances:    make(map[int]map[NodeID]*ABA),
+		muABAIvokeFlag:  &sync.RWMutex{},
+		abaInvokeFlag:   make(map[int]map[NodeID]map[int]map[uint8]struct{}),
+		abaCallBack:     make(chan *ABABack, 100),
+		delayRoundCh:    make(chan int, 100),
 	}
 
 	corer.retriever = NewRetriever(nodeID, store, transmitor, sigService, parameters, loopBackChannel)
-	corer.commitor = NewCommitor(corer.localDAG, store, commitChannel)
+	corer.commitor = NewCommitor(corer.localDAG, store, commitChannel, startABA)
 
 	return corer
 }
@@ -99,36 +104,48 @@ func (corer *Core) checkReference(block *Block) (bool, []crypto.Digest) {
 	return ok, missDeigest
 }
 
-// func (corer *Core) getABAInstance(round int, nodeID NodeID) *ABA {
-// 	items, ok := corer.abaInstances[round]
-// 	if !ok {
-// 		items = make(map[NodeID]*ABA)
-// 		corer.abaInstances[round] = items
-// 	}
-// 	instance, ok := items[nodeID]
-// 	if !ok {
-// 		instance = NewABA(corer, epoch, round, corer.abaCallBack)
-// 		items[nodeID] = instance
-// 	}
-// 	return instance
-// }
+func (corer *Core) getABAInstance(round int, Slot NodeID) *ABA {
+	items, ok := corer.abaInstances[round]
+	if !ok {
+		items = make(map[NodeID]*ABA)
+		corer.abaInstances[round] = items
+	}
+	instance, ok := items[Slot]
+	if !ok {
+		instance = NewABA(corer, round, Slot, corer.abaCallBack)
+		items[Slot] = instance
+	}
+	return instance
+}
 
-// func (corer *Core) isInvokeABA(epoch, round, inRound int64, tag uint8) bool {
-// 	flags, ok := corer.abaInvokeFlag[epoch]
-// 	if !ok {
-// 		return false
-// 	}
-// 	flag, ok := flags[round]
-// 	if !ok {
-// 		return false
-// 	}
-// 	item, ok := flag[inRound]
-// 	if !ok {
-// 		return false
-// 	}
-// 	_, ok = item[tag]
-// 	return ok
-// }
+func (corer *Core) isInvokeABA(round int, Slotid NodeID, inRound int, tag uint8) bool {
+	flags, ok := corer.abaInvokeFlag[round]
+	if !ok {
+		return false
+	}
+	flag, ok := flags[Slotid]
+	if !ok {
+		return false
+	}
+	item, ok := flag[inRound]
+	if !ok {
+		return false
+	}
+	_, ok = item[tag]
+	return ok
+}
+
+func (corer *Core) hasInvokeABA(round int, Slot NodeID) bool {
+	corer.muABAIvokeFlag.RLock()
+	defer corer.muABAIvokeFlag.RUnlock()
+	flags, ok := corer.abaInvokeFlag[round]
+	if !ok {
+		return false
+	}
+	_, ok = flags[Slot]
+
+	return ok
+}
 
 // func (corer *Core) messageFilter(epoch int64) bool {
 // 	return corer.Epoch > epoch
@@ -146,15 +163,17 @@ func (corer *Core) generatorBlock(round int) *Block {
 				Round:     round,
 				Batch:     corer.txpool.GetBatch(),
 				Reference: make(map[crypto.Digest]NodeID),
+				TimeStamp: time.Now().Unix(),
 			}
 		} else {
-			reference := corer.localDAG.GetRoundReceivedBlock(round - 1)
+			reference := corer.localDAG.GetRoundReceivedBlocks(round - 1)
 			if len(reference) >= corer.committee.HightThreshold() {
 				block = &Block{
 					Author:    corer.nodeID,
 					Round:     round,
 					Batch:     corer.txpool.GetBatch(),
 					Reference: reference,
+					TimeStamp: time.Now().Unix(),
 				}
 			}
 		}
@@ -203,7 +222,7 @@ func (corer *Core) handlePropose(propose *ProposeMsg) error {
 }
 
 func (corer *Core) handleRequestBlock(request *RequestBlockMsg) error {
-	logger.Debug.Println("procesing block request")
+	logger.Debug.Printf("procesing block request from node %d", request.Author)
 
 	//Step 1: verify signature
 	if !request.Verify(corer.committee) {
@@ -244,116 +263,157 @@ func (corer *Core) handleLoopBack(block *Block) error {
 }
 
 // ABA
-// func(corer *Core) processABAId(p *ABAid){
+func (corer *Core) processABAId(m *ABAid) error {
+	logger.Debug.Printf("start ABA round %d Slot %d val %d\n", m.round, m.slot, m.flag)
+	return corer.invokeABAVal(m.round, m.slot, 0, m.flag, m.localstate)
+}
 
-// }
+func (corer *Core) invokeABAVal(round int, Slot NodeID, inRound int, flag uint8, localstate uint8) error {
+	corer.muABAIvokeFlag.Lock()
+	defer corer.muABAIvokeFlag.Unlock()
+	if corer.isInvokeABA(round, Slot, inRound, flag) {
+		return nil
+	}
+	logger.Debug.Printf("Invoke ABA round %d Slot %d in_round %d val %d\n", round, Slot, inRound, flag)
+	flags, ok := corer.abaInvokeFlag[round]
+	if !ok {
+		flags = make(map[NodeID]map[int]map[uint8]struct{})
+		corer.abaInvokeFlag[round] = flags
+	}
+	items, ok := flags[Slot]
+	if !ok {
+		items = make(map[int]map[uint8]struct{})
+		flags[Slot] = items
+	}
+	item, ok := items[inRound]
+	if !ok {
+		item = make(map[uint8]struct{})
+		items[inRound] = item
+	}
+	item[flag] = struct{}{}
+	abaVal, _ := NewABAVal(corer.nodeID, round, Slot, inRound, flag, corer.sigService, localstate)
+	corer.transmitor.Send(corer.nodeID, NONE, abaVal)
+	corer.transmitor.RecvChannel() <- abaVal
 
-// func (corer *Core) invokeABAVal(leader NodeID, epoch, round, inRound int64, flag uint8) error {
-// 	logger.Debug.Printf("Invoke ABA epoch %d ex_round %d in_round %d val %d\n", epoch, round, inRound, flag)
-// 	if corer.isInvokeABA(epoch, round, inRound, flag) {
-// 		return nil
-// 	}
-// 	flags, ok := corer.abaInvokeFlag[epoch]
-// 	if !ok {
-// 		flags = make(map[int64]map[int64]map[uint8]struct{})
-// 		corer.abaInvokeFlag[epoch] = flags
-// 	}
-// 	items, ok := flags[round]
-// 	if !ok {
-// 		items = make(map[int64]map[uint8]struct{})
-// 		flags[round] = items
-// 	}
-// 	item, ok := items[inRound]
-// 	if !ok {
-// 		item = make(map[uint8]struct{})
-// 		items[inRound] = item
-// 	}
-// 	item[flag] = struct{}{}
-// 	abaVal, _ := NewABAVal(corer.nodeID, leader, epoch, round, inRound, flag, corer.sigService)
-// 	corer.transmitor.Send(corer.nodeID, NONE, abaVal)
-// 	corer.transmitor.RecvChannel() <- abaVal
+	return nil
+}
 
-// 	return nil
-// }
+func (corer *Core) handleABAVal(val *ABAVal) error {
+	logger.Debug.Printf("Processing aba val round %d Slot %d in-round %d val %d from %d\n", val.Round, val.Slot, val.InRound, val.Flag, val.Author)
 
-// func (corer *Core) handleABAVal(val *ABAVal) error {
-// 	logger.Debug.Printf("Processing aba val leader %d epoch %d round %d in-round val %d\n", val.Leader, val.Epoch, val.Round, val.InRound, val.Flag)
-// 	if corer.messageFilter(val.Epoch) {
-// 		return nil
-// 	}
+	go corer.getABAInstance(val.Round, val.Slot).ProcessABAVal(val)
 
-// 	go corer.getABAInstance(val.Epoch, val.Round).ProcessABAVal(val)
+	if val.InRound == 0 {
+		if !corer.hasInvokeABA(val.Round, val.Slot) {
 
-// 	return nil
-// }
+			go corer.passivelyStartABA(val)
+		}
+	}
 
-// func (corer *Core) handleABAMux(mux *ABAMux) error {
-// 	logger.Debug.Printf("Processing aba mux leader %d epoch %d round %d in-round %d val %d\n", mux.Leader, mux.Epoch, mux.Round, mux.InRound, mux.Flag)
-// 	if corer.messageFilter(mux.Epoch) {
-// 		return nil
-// 	}
+	return nil
+}
 
-// 	go corer.getABAInstance(mux.Epoch, mux.Round).ProcessABAMux(mux)
+func (corer *Core) passivelyStartABA(val *ABAVal) {
+	for {
+		ptern := corer.commitor.IsReceivePattern(val.Round, val.Slot)
+		logger.Debug.Printf("Check pattern at round %d slot %d: %v", val.Round, val.Slot, ptern)
+		if ptern == toskip {
+			logger.Debug.Printf("passively create aba val round %d Slot %d in-round %d  flag 1", val.Round, val.Slot, val.InRound)
+			corer.invokeABAVal(val.Round, val.Slot, val.InRound, FLAG_NO, FLAG_YES)
+			break
+		} else if ptern == toCommit {
+			logger.Debug.Printf("passively create aba val round %d Slot %d in-round %d  flag 0", val.Round, val.Slot, val.InRound)
+			corer.invokeABAVal(val.Round, val.Slot, val.InRound, FLAG_YES, FLAG_YES)
+			break
+		} else if ptern == undecide {
+			break
+		} else if ptern == unjudge {
 
-// 	return nil
-// }
+			time.Sleep(time.Millisecond * time.Duration(corer.parameters.JudgeDelay))
+		}
+	}
+}
 
-// func (corer *Core) handleCoinShare(share *CoinShare) error {
-// 	logger.Debug.Printf("Processing coin share epoch %d round %d in-round %d", share.Epoch, share.Round, share.InRound)
-// 	if corer.messageFilter(share.Epoch) {
-// 		return nil
-// 	}
+func (corer *Core) handleABAMux(mux *ABAMux) error {
+	logger.Debug.Printf("Processing aba mux round %d solt %d in-round %d val %d\n", mux.Round, mux.Slot, mux.InRound, mux.Flag)
 
-// 	if ok, coin, err := corer.Aggreator.addCoinShare(share); err != nil {
-// 		return err
-// 	} else if ok {
-// 		logger.Debug.Printf("ABA epoch %d ex-round %d in-round %d coin %d\n", share.Epoch, share.Round, share.InRound, coin)
-// 		go corer.getABAInstance(share.Epoch, share.Round).ProcessCoin(share.InRound, coin, share.Leader)
-// 	}
+	go corer.getABAInstance(mux.Round, mux.Slot).ProcessABAMux(mux)
 
-// 	return nil
-// }
+	return nil
+}
 
-// func (corer *Core) handleABAHalt(halt *ABAHalt) error {
-// 	logger.Debug.Printf("Processing aba halt leader %d epoch %d in-round %d\n", halt.Leader, halt.Epoch, halt.InRound)
-// 	if corer.messageFilter(halt.Epoch) {
-// 		return nil
-// 	}
-// 	go corer.getABAInstance(halt.Epoch, halt.Round).ProcessHalt(halt)
-// 	return nil
-// }
+func (corer *Core) handleCoinShare(share *CoinShare) error {
+	logger.Debug.Printf("Processing coin share round %d Slot %d in-round %d", share.Round, share.Slot, share.InRound)
 
-// func (corer *Core) processABABack(back *ABABack) error {
-// 	if back.Typ == ABA_INVOKE {
-// 		return corer.invokeABAVal(back.Leader, back.Epoch, back.ExRound, back.InRound, back.Flag)
-// 	} else if back.Typ == ABA_HALT {
-// 		if back.Flag == FLAG_NO { //next round
-// 			return corer.invokeStageTwo(back.Epoch, back.ExRound+1)
-// 		} else if back.Flag == FLAG_YES { //next epoch
-// 			return corer.handleOutPut(back.Epoch, back.Leader)
-// 		}
-// 	}
-// 	return nil
-// }
+	if ok, coin, err := corer.Aggreator.addCoinShare(share); err != nil {
+		return err
+	} else if ok {
+		logger.Debug.Printf("ABA  round %d Slot %d in-round %d coin %d\n", share.Round, share.Slot, share.InRound, coin)
+		go corer.getABAInstance(share.Round, share.Slot).ProcessCoin(share.InRound, coin)
+	}
+
+	return nil
+}
+
+func (corer *Core) handleABAHalt(halt *ABAHalt) error {
+	logger.Debug.Printf("Processing aba halt round %d Slot %d in-round %d flag %d\n", halt.Round, halt.Slot, halt.InRound, halt.Flag)
+	go corer.getABAInstance(halt.Round, halt.Slot).ProcessHalt(halt)
+	return nil
+}
+
+func (corer *Core) processABABack(back *ABABack) error {
+	if back.Typ == ABA_INVOKE {
+		return corer.invokeABAVal(back.ExRound, back.Slot, back.InRound, back.Flag, FLAG_NO)
+	} else if back.Typ == ABA_HALT {
+		return corer.receivePatternCallback(back)
+	}
+	return nil
+}
+
+func (corer *Core) receivePatternCallback(back *ABABack) error {
+	logger.Debug.Printf("Processing ababack round %d Slot %d in-round %d flag %d\n", back.ExRound, back.Slot, back.InRound, back.Flag)
+	corer.localDAG.muDAG.RLock()
+	digest := corer.localDAG.localDAG[back.ExRound][back.Slot][0]
+	corer.localDAG.muDAG.RUnlock()
+	if back.Flag == FLAG_NO { //toskip
+		corer.commitor.notifycommit <- &commitMsg{
+			round:  back.ExRound,
+			node:   back.Slot,
+			ptern:  toskip,
+			digest: crypto.Digest{},
+		}
+	} else if back.Flag == FLAG_YES { //tocommit
+		corer.commitor.notifycommit <- &commitMsg{
+			round:  back.ExRound,
+			node:   back.Slot,
+			ptern:  toCommit,
+			digest: digest,
+		}
+	}
+	return nil
+}
 
 func (corer *Core) handleOutPut(round int, node NodeID, digest crypto.Digest, references map[crypto.Digest]NodeID) error {
 	logger.Debug.Printf("procesing output round %d node %d \n", round, node)
 
 	//receive block
 	corer.localDAG.ReceiveBlock(round, node, digest, references)
+	// try judge
+	corer.commitor.NotifyToJudge()
+	if n := corer.localDAG.GetRoundReceivedBlockNums(round); n >= corer.committee.HightThreshold() {
 
-	//try commit
-	corer.commitor.NotifyToCommit()
-
-	if n := corer.localDAG.GetRoundReceivedBlockNums(round); n == corer.committee.HightThreshold() {
-		//timeout
-		time.AfterFunc(time.Duration(corer.parameters.DelayProposal)*time.Millisecond, func() {
-			corer.delayRoundCh <- round + 1
-		})
-		return nil
-	} else if n == corer.committee.Size() {
 		return corer.advancedround(round + 1)
 	}
+
+	// if n := corer.localDAG.GetRoundReceivedBlockNums(round); n == corer.committee.HightThreshold() {
+	// 	//timeout
+	// 	time.AfterFunc(time.Duration(corer.parameters.DelayProposal)*time.Millisecond, func() {
+	// 		corer.delayRoundCh <- round + 1
+	// 	})
+	// 	return nil
+	// } else if n == corer.committee.Size() {
+	// 	return corer.advancedround(round + 1)
+	// }
 
 	return nil
 }
@@ -398,6 +458,14 @@ func (corer *Core) Run() {
 						err = corer.handleRequestBlock(msg.(*RequestBlockMsg))
 					case ReplyBlockType:
 						err = corer.handleReplyBlock(msg.(*ReplyBlockMsg))
+					case ABAValType:
+						err = corer.handleABAVal(msg.(*ABAVal))
+					case ABAMuxType:
+						err = corer.handleABAMux(msg.(*ABAMux))
+					case ABAHaltType:
+						err = corer.handleABAHalt(msg.(*ABAHalt))
+					case CoinShareType:
+						err = corer.handleCoinShare(msg.(*CoinShare))
 					}
 
 				}
@@ -405,14 +473,14 @@ func (corer *Core) Run() {
 				{
 					err = corer.handleLoopBack(block)
 				}
-			// case abaBack := <-corer.abaCallBack:
-			// 	{
-			// 		err = corer.processABABack(abaBack)
-			// 	}
-			// case abaid:=<-corer.startABA:
-			// 	{
-			// 		err=corer.p
-			// 	}
+			case abaBack := <-corer.abaCallBack:
+				{
+					err = corer.processABABack(abaBack)
+				}
+			case abaid := <-corer.startABA:
+				{
+					err = corer.processABAId(abaid)
+				}
 			case round := <-corer.delayRoundCh:
 				err = corer.advancedround(round)
 			}

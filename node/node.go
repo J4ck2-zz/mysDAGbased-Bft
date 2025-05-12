@@ -25,6 +25,7 @@ func NewNode(
 	logger.SetOutput(logger.DebugLevel, logger.NewFileWriter(fmt.Sprintf("%s/node-debug-%d.log", logPath, nodeID)))
 	logger.SetOutput(logger.WarnLevel, logger.NewFileWriter(fmt.Sprintf("%s/node-warn-%d.log", logPath, nodeID)))
 	logger.SetOutput(logger.ErrorLevel, logger.NewFileWriter(fmt.Sprintf("%s/node-error-%d.log", logPath, nodeID)))
+	//logger.SetOutput(logger.QueneLevel, logger.NewFileWriter(fmt.Sprintf("%s/node-quene-%d.log", logPath, nodeID)))
 	logger.SetLevel(logger.Level(logLevel))
 
 	//step 2: ReadKeys
@@ -71,7 +72,6 @@ func NewNode(
 		logger.Error.Println(err)
 		return nil, err
 	}
-
 	// txpool.Run()
 	logger.Info.Printf("Node %d successfully booted \n", nodeID)
 
@@ -84,5 +84,7 @@ func NewNode(
 func (n *Node) AnalyzeBlock() {
 	for range n.commitChannel {
 		//to do something
+		//logger.Info.Printf("Committed block: Round=%d Author=%d Hash=%x\n", block.Round, block.Author, block.Hash())
 	}
+
 }

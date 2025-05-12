@@ -52,7 +52,7 @@ func NewRetriever(
 		requests:        make(map[int]*RequestBlockMsg),
 		loopBackBlocks:  make(map[int]crypto.Digest),
 		loopBackCnts:    make(map[int]int),
-		reqChannel:      make(chan *reqRetrieve, 1_00),
+		reqChannel:      make(chan *reqRetrieve, 100),
 		miss2Blocks:     make(map[crypto.Digest][]int),
 		store:           store,
 		sigService:      sigService,
@@ -87,7 +87,7 @@ func (r *Retriever) run() {
 
 					if len(missBlocks) > 0 {
 						request, _ := NewRequestBlock(r.nodeID, missBlocks, r.cnt, time.Now().UnixMilli(), r.sigService)
-						logger.Debug.Printf("sending request for miss block reqID %d \n", r.cnt)
+						logger.Debug.Printf("sending request for miss block reqID %d to %d\n", r.cnt, req.nodeID)
 						_ = r.transmitor.Send(request.Author, req.nodeID, request)
 						r.requests[request.ReqID] = request
 					}
@@ -136,6 +136,14 @@ func (r *Retriever) requestBlocks(digest []crypto.Digest, nodeid NodeID, backBlo
 		backBlock: backBlock,
 	}
 	r.reqChannel <- req
+	logger.Warn.Printf(" reqChannel <- req 长度：%d", len(r.reqChannel))
+	// select {
+	// case r.reqChannel <- req:
+	// 	// 正常写入
+	// default:
+	// 	// 写不进去说明 channel 已满
+	// 	logger.Error.Println("写入 reqChannel <- req 失败,r.reqChannel 已满")
+	// }
 }
 
 func (r *Retriever) processRequest(request *RequestBlockMsg) {

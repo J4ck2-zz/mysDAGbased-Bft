@@ -13,6 +13,7 @@ const (
 	DebugLevel Level = 0x2
 	ErrorLevel Level = 0x4
 	WarnLevel  Level = 0x8
+	//QueneLevel Level = 0x10
 )
 
 const (
@@ -32,8 +33,9 @@ var (
 	debugLog = log.New(os.Stdout, "[DUBUG] ", log.Ldate|log.Lmicroseconds|log.Lshortfile)
 	errorLog = log.New(os.Stdout, "[ERROR] ", log.Ldate|log.Lmicroseconds|log.Lshortfile)
 	warnLog  = log.New(os.Stdout, "[WARN] ", log.Ldate|log.Lmicroseconds|log.Lshortfile)
-	out      = []io.Writer{os.Stdout, os.Stdout, os.Stdout, os.Stdout}
-	logs     = []*log.Logger{infoLog, debugLog, errorLog, warnLog}
+	//queneLog = log.New(os.Stdout, "[QUENE] ", log.Ldate|log.Lmicroseconds|log.Lshortfile)
+	out  = []io.Writer{os.Stdout, os.Stdout, os.Stdout, os.Stdout}
+	logs = []*log.Logger{infoLog, debugLog, errorLog, warnLog}
 )
 
 func SetLevel(level Level) {
@@ -60,4 +62,5 @@ var (
 	Debug Logger = debugLog
 	Error Logger = errorLog
 	Warn  Logger = warnLog
+	//Quene Logger = queneLog
 )

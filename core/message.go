@@ -24,6 +24,7 @@ type Block struct {
 	Round     int
 	Batch     pool.Batch
 	Reference map[crypto.Digest]NodeID
+	TimeStamp int64
 }
 
 func (b *Block) Encode() ([]byte, error) {
@@ -45,8 +46,9 @@ func (b *Block) Decode(data []byte) error {
 func (b *Block) Hash() crypto.Digest {
 
 	hasher := crypto.NewHasher()
-	hasher.Add(strconv.AppendInt(nil, int64(b.Author), 2))
-	hasher.Add(strconv.AppendInt(nil, int64(b.Round), 2))
+	hasher.Add(strconv.AppendInt(nil, int64(b.Author), 10))
+	hasher.Add(strconv.AppendInt(nil, int64(b.Round), 10))
+	hasher.Add(strconv.AppendInt(nil, int64(b.TimeStamp), 10))
 	for _, tx := range b.Batch.Txs {
 		hasher.Add(tx)
 	}
@@ -103,178 +105,180 @@ func (msg *ProposeMsg) MsgType() int {
 	return ProposeMsgType
 }
 
-//ABA MSG
-// type ABAVal struct {
-// 	Author    NodeID
-// 	round     int
-// 	Round     int64
-// 	InRound   int64
-// 	Flag      uint8
-// 	Signature crypto.Signature
-// }
+// ABA MSG
+type ABAVal struct {
+	Author     NodeID
+	Round      int
+	Slot       NodeID
+	InRound    int
+	Flag       uint8
+	Signature  crypto.Signature
+	LocalState uint8
+}
 
-// func NewABAVal(Author, Leader NodeID, Epoch, Round, InRound int64, Flag uint8, sigService *crypto.SigService) (*ABAVal, error) {
-// 	val := &ABAVal{
-// 		Author:  Author,
-// 		Round:   Round,
-// 		InRound: InRound,
-// 		Flag:    Flag,
-// 	}
-// 	sig, err := sigService.RequestSignature(val.Hash())
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	val.Signature = sig
-// 	return val, nil
-// }
+func NewABAVal(Author NodeID, Round int, Slot NodeID, InRound int, Flag uint8, sigService *crypto.SigService,LocalStare uint8) (*ABAVal, error) {
+	val := &ABAVal{
+		Author:  Author,
+		Round:   Round,
+		Slot:    Slot,
+		InRound: InRound,
+		Flag:    Flag,
+		LocalState: LocalStare,
+	}
+	sig, err := sigService.RequestSignature(val.Hash())
+	if err != nil {
+		return nil, err
+	}
+	val.Signature = sig
+	return val, nil
+}
 
-// func (v *ABAVal) Verify(committee Committee) bool {
-// 	pub := committee.Name(v.Author)
-// 	return v.Signature.Verify(pub, v.Hash())
-// }
+func (v *ABAVal) Verify(committee Committee) bool {
+	pub := committee.Name(v.Author)
+	return v.Signature.Verify(pub, v.Hash())
+}
 
-// func (v *ABAVal) Hash() crypto.Digest {
-// 	hasher := crypto.NewHasher()
-// 	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(v.Author)))
-// 	hasher.Add([]byte{v.Flag})
-// 	return hasher.Sum256(nil)
-// }
+func (v *ABAVal) Hash() crypto.Digest {
+	hasher := crypto.NewHasher()
+	hasher.Add(strconv.AppendInt(nil, int64(v.Author), 2))
+	hasher.Add(strconv.AppendInt(nil, int64(v.Round), 2))
+	hasher.Add(strconv.AppendInt(nil, int64(v.Slot), 2))
+	hasher.Add(strconv.AppendInt(nil, int64(v.InRound), 2))
+	hasher.Add([]byte{v.Flag})
+	return hasher.Sum256(nil)
+}
 
-// func (v *ABAVal) MsgType() int {
-// 	return ABAValType
-// }
+func (v *ABAVal) MsgType() int {
+	return ABAValType
+}
 
-// type ABAMux struct {
-// 	Author    NodeID
-// 	Leader    NodeID
-// 	Epoch     int64
-// 	Round     int64
-// 	InRound   int64
-// 	Flag      uint8
-// 	Signature crypto.Signature
-// }
+type ABAMux struct {
+	Author    NodeID
+	Round     int
+	Slot      NodeID
+	InRound   int
+	Flag      uint8
+	Signature crypto.Signature
+}
 
-// func NewABAMux(Author, Leader NodeID, Epoch, Round, InRound int64, Flag uint8, sigService *crypto.SigService) (*ABAMux, error) {
-// 	val := &ABAMux{
-// 		Author:  Author,
-// 		Leader:  Leader,
-// 		Epoch:   Epoch,
-// 		Round:   Round,
-// 		InRound: InRound,
-// 		Flag:    Flag,
-// 	}
-// 	sig, err := sigService.RequestSignature(val.Hash())
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	val.Signature = sig
-// 	return val, nil
-// }
+func NewABAMux(Author NodeID, Round int, Slot NodeID, InRound int, Flag uint8, sigService *crypto.SigService) (*ABAMux, error) {
+	val := &ABAMux{
+		Author:  Author,
+		Round:   Round,
+		Slot:    Slot,
+		InRound: InRound,
+		Flag:    Flag,
+	}
+	sig, err := sigService.RequestSignature(val.Hash())
+	if err != nil {
+		return nil, err
+	}
+	val.Signature = sig
+	return val, nil
+}
 
-// func (v *ABAMux) Verify(committee Committee) bool {
-// 	pub := committee.Name(v.Author)
-// 	return v.Signature.Verify(pub, v.Hash())
-// }
+func (v *ABAMux) Verify(committee Committee) bool {
+	pub := committee.Name(v.Author)
+	return v.Signature.Verify(pub, v.Hash())
+}
 
-// func (v *ABAMux) Hash() crypto.Digest {
-// 	hasher := crypto.NewHasher()
-// 	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(v.Author)))
-// 	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(v.Leader)))
-// 	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(v.Epoch)))
-// 	hasher.Add([]byte{v.Flag})
-// 	return hasher.Sum256(nil)
-// }
+func (v *ABAMux) Hash() crypto.Digest {
+	hasher := crypto.NewHasher()
+	hasher.Add(strconv.AppendInt(nil, int64(v.Author), 2))
+	hasher.Add(strconv.AppendInt(nil, int64(v.Round), 2))
+	hasher.Add(strconv.AppendInt(nil, int64(v.Slot), 2))
+	hasher.Add(strconv.AppendInt(nil, int64(v.InRound), 2))
+	hasher.Add([]byte{v.Flag})
+	return hasher.Sum256(nil)
+}
 
-// func (v *ABAMux) MsgType() int {
-// 	return ABAMuxType
-// }
+func (v *ABAMux) MsgType() int {
+	return ABAMuxType
+}
 
-// type CoinShare struct {
-// 	Author  NodeID
-// 	Leader  NodeID
-// 	Epoch   int64
-// 	Round   int64
-// 	InRound int64
-// 	Share   crypto.SignatureShare
-// }
+type CoinShare struct {
+	Author  NodeID
+	Round   int
+	Slot    NodeID
+	InRound int
+	Share   crypto.SignatureShare
+}
 
-// func NewCoinShare(Author, Leader NodeID, Epoch, Round, InRound int64, sigService *crypto.SigService) (*CoinShare, error) {
-// 	coin := &CoinShare{
-// 		Author:  Author,
-// 		Leader:  Leader,
-// 		Epoch:   Epoch,
-// 		Round:   Round,
-// 		InRound: InRound,
-// 	}
-// 	sig, err := sigService.RequestTsSugnature(coin.Hash())
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	coin.Share = sig
-// 	return coin, nil
-// }
+func NewCoinShare(Author NodeID, Round int, Slot NodeID, InRound int, sigService *crypto.SigService) (*CoinShare, error) {
+	coin := &CoinShare{
+		Author:  Author,
+		Round:   Round,
+		Slot:    Slot,
+		InRound: InRound,
+	}
+	sig, err := sigService.RequestTsSugnature(coin.Hash())
+	if err != nil {
+		return nil, err
+	}
+	coin.Share = sig
+	return coin, nil
+}
 
-// func (c *CoinShare) Verify(committee Committee) bool {
-// 	_ = committee.Name(c.Author)
-// 	return c.Share.Verify(c.Hash())
-// }
+func (c *CoinShare) Verify(committee Committee) bool {
+	_ = committee.Name(c.Author)
+	return c.Share.Verify(c.Hash())
+}
 
-// func (c *CoinShare) Hash() crypto.Digest {
-// 	hasher := crypto.NewHasher()
-// 	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(c.Leader)))
-// 	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(c.Epoch)))
-// 	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(c.InRound)))
-// 	return hasher.Sum256(nil)
-// }
+func (c *CoinShare) Hash() crypto.Digest {
+	hasher := crypto.NewHasher()
+	hasher.Add(strconv.AppendInt(nil, int64(c.Round), 2))
+	hasher.Add(strconv.AppendInt(nil, int64(c.Slot), 2))
+	hasher.Add(strconv.AppendInt(nil, int64(c.InRound), 2))
+	return hasher.Sum256(nil)
+}
 
-// func (c *CoinShare) MsgType() int {
-// 	return CoinShareType
-// }
+func (c *CoinShare) MsgType() int {
+	return CoinShareType
+}
 
-// type ABAHalt struct {
-// 	Author    NodeID
-// 	Leader    NodeID
-// 	Epoch     int64
-// 	Round     int64
-// 	InRound   int64
-// 	Flag      uint8
-// 	Signature crypto.Signature
-// }
+type ABAHalt struct {
+	Author    NodeID
+	Round     int
+	Slot      NodeID
+	InRound   int
+	Flag      uint8
+	Signature crypto.Signature
+}
 
-// func NewABAHalt(Author, Leader NodeID, Epoch, Round, InRound int64, Flag uint8, sigService *crypto.SigService) (*ABAHalt, error) {
-// 	h := &ABAHalt{
-// 		Author:  Author,
-// 		Leader:  Leader,
-// 		Epoch:   Epoch,
-// 		Round:   Round,
-// 		InRound: InRound,
-// 		Flag:    Flag,
-// 	}
-// 	sig, err := sigService.RequestSignature(h.Hash())
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	h.Signature = sig
-// 	return h, nil
-// }
+func NewABAHalt(Author NodeID, Round int, Slot NodeID, InRound int, Flag uint8, sigService *crypto.SigService) (*ABAHalt, error) {
+	h := &ABAHalt{
+		Author:  Author,
+		Round:   Round,
+		Slot:    Slot,
+		InRound: InRound,
+		Flag:    Flag,
+	}
+	sig, err := sigService.RequestSignature(h.Hash())
+	if err != nil {
+		return nil, err
+	}
+	h.Signature = sig
+	return h, nil
+}
 
-// func (h *ABAHalt) Verify(committee Committee) bool {
-// 	pub := committee.Name(h.Author)
-// 	return h.Signature.Verify(pub, h.Hash())
-// }
+func (h *ABAHalt) Verify(committee Committee) bool {
+	pub := committee.Name(h.Author)
+	return h.Signature.Verify(pub, h.Hash())
+}
 
-// func (h *ABAHalt) Hash() crypto.Digest {
-// 	hasher := crypto.NewHasher()
-// 	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(h.Author)))
-// 	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(h.Leader)))
-// 	hasher.Add(binary.BigEndian.AppendUint64(nil, uint64(h.Epoch)))
-// 	hasher.Add([]byte{h.Flag})
-// 	return hasher.Sum256(nil)
-// }
+func (h *ABAHalt) Hash() crypto.Digest {
+	hasher := crypto.NewHasher()
+	hasher.Add(strconv.AppendInt(nil, int64(h.Author), 2))
+	hasher.Add(strconv.AppendInt(nil, int64(h.Round), 2))
+	hasher.Add(strconv.AppendInt(nil, int64(h.Slot), 2))
+	hasher.Add(strconv.AppendInt(nil, int64(h.InRound), 2))
+	hasher.Add([]byte{h.Flag})
+	return hasher.Sum256(nil)
+}
 
-// func (h *ABAHalt) MsgType() int {
-// 	return ABAHaltType
-// }
+func (h *ABAHalt) MsgType() int {
+	return ABAHaltType
+}
 
 // ReadyMsg
 type ReadyMsg struct {
@@ -426,11 +430,10 @@ const (
 	RequestBlockType
 	ReplyBlockType
 	LoopBackType
-	TotalNums
-	// ABAValType
-	// ABAMuxType
-	// CoinShareType
-	// ABAHaltType
+	ABAValType
+	ABAMuxType
+	CoinShareType
+	ABAHaltType
 )
 
 var DefaultMsgTypes = map[int]reflect.Type{
@@ -439,8 +442,8 @@ var DefaultMsgTypes = map[int]reflect.Type{
 	RequestBlockType: reflect.TypeOf(RequestBlockMsg{}),
 	ReplyBlockType:   reflect.TypeOf(ReplyBlockMsg{}),
 	LoopBackType:     reflect.TypeOf(LoopBackMsg{}),
-	// ABAValType:     reflect.TypeOf(ABAVal{}),
-	// ABAMuxType:     reflect.TypeOf(ABAMux{}),
-	// CoinShareType:  reflect.TypeOf(CoinShare{}),
-	// ABAHaltType:    reflect.TypeOf(ABAHalt{}),
+	ABAValType:       reflect.TypeOf(ABAVal{}),
+	ABAMuxType:       reflect.TypeOf(ABAMux{}),
+	CoinShareType:    reflect.TypeOf(CoinShare{}),
+	ABAHaltType:      reflect.TypeOf(ABAHalt{}),
 }

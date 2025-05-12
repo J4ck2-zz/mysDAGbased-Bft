@@ -84,7 +84,7 @@ func main() {
 			panic(err)
 		} else {
 			//blocking
-			node.AnalyzeBlock()
+			node.AnalyzeBlock()	
 		}
 	}
 

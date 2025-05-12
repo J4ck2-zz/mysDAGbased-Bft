@@ -13,8 +13,8 @@ def local(ctx):
     ''' Run benchmarks on localhost '''
     bench_params = {
         'nodes': 4,
-        'duration': 50,
-        'rate': 5_000,                  # tx send rate
+        'duration': 10,
+        'rate': 5000,                  # tx send rate
         'batch_size': 200,              # the max number of tx that can be hold 
         'log_level': 0b1111,            # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
         'protocol_name': "WuKong"
@@ -33,7 +33,8 @@ def local(ctx):
             "ddos": False,              # DDOS attack
             "faults": 0,                # the number of byzantine node
             "retry_delay": 5_000,        # request block period
-            "deley_proposal": 1_000
+            "deley_proposal": 50,
+            "judge_delay":10
         }
     }
     try:

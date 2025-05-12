@@ -10,6 +10,7 @@ type Parameters struct {
 	Faults        int  `json:"faults"`
 	RetryDelay    int  `json:"retry_delay"`
 	DelayProposal int  `json:"deley_proposal"`
+	JudgeDelay    int  `json:"judge_delay"`
 }
 
 var DefaultParameters = Parameters{
@@ -20,6 +21,7 @@ var DefaultParameters = Parameters{
 	Faults:        0,
 	RetryDelay:    5_000,
 	DelayProposal: 1_000,
+	JudgeDelay:    100,
 }
 
 type NodeID int

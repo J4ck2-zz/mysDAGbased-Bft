@@ -80,6 +80,7 @@ class NodeParameters:
             inputs += [json['consensus']['faults']]
             inputs += [json['consensus']['retry_delay']]
             inputs += [json['consensus']['deley_proposal']]
+            inputs += [json['consensus']['judge_delay']]
             inputs += [json['pool']['tx_size']]
             inputs += [json['pool']['max_queue_size']]
         except KeyError as e:

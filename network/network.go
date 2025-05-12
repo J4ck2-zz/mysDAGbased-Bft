@@ -69,7 +69,7 @@ func (s *Sender) connect(addr string) (chan<- Messgae, error) {
 				}
 				return
 			} else {
-				logger.Debug.Printf("Successfully sent message to %s \n", addr)
+				logger.Debug.Printf("Successfully sent %d message to %s \n", msg.MsgType(), addr)
 			}
 		}
 	}()
