@@ -415,7 +415,7 @@ func (corer *Core) handleOutPut(round int, node NodeID, digest crypto.Digest, re
 	// 	return corer.advancedround(round + 1)
 	// }
 
-	return nil
+	 return nil
 }
 
 func (corer *Core) advancedround(round int) error {

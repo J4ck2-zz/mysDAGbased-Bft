@@ -33,7 +33,7 @@ def local(ctx):
             "ddos": False,              # DDOS attack
             "faults": 0,                # the number of byzantine node
             "retry_delay": 5_000,        # request block period
-            "deley_proposal": 50,
+            "deley_proposal": 0,
             "judge_delay":10
         }
     }
