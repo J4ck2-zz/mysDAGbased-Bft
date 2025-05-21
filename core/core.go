@@ -23,6 +23,7 @@ type Core struct {
 	localDAG        *LocalDAG
 	Aggreator       *Aggreator
 	loopBackChannel chan *Block
+	loopDigests     chan crypto.Digest
 	commitChannel   chan<- *Block
 	proposedFlag    map[int]struct{}
 	startABA        chan *ABAid
@@ -45,6 +46,7 @@ func NewCore(
 ) *Core {
 	loopBackChannel := make(chan *Block, 1_000)
 	startABA := make(chan *ABAid, 1000)
+	loopDigest := make(chan crypto.Digest, 100)
 	corer := &Core{
 		nodeID:          nodeID,
 		committee:       committee,
@@ -55,6 +57,7 @@ func NewCore(
 		sigService:      sigService,
 		store:           store,
 		loopBackChannel: loopBackChannel,
+		loopDigests:     loopDigest,
 		commitChannel:   commitChannel,
 		localDAG:        NewLocalDAG(store, committee),
 		Aggreator:       NewAggreator(committee, sigService),
@@ -67,7 +70,7 @@ func NewCore(
 		delayRoundCh:    make(chan int, 100),
 	}
 
-	corer.retriever = NewRetriever(nodeID, store, transmitor, sigService, parameters, loopBackChannel)
+	corer.retriever = NewRetriever(nodeID, store, transmitor, sigService, parameters, loopBackChannel, loopDigest, corer.localDAG)
 	corer.commitor = NewCommitor(corer.localDAG, store, commitChannel, startABA)
 
 	return corer
@@ -95,13 +98,33 @@ func getBlock(store *store.Store, digest crypto.Digest) (*Block, error) {
 	return block, nil
 }
 
-func (corer *Core) checkReference(block *Block) (bool, []crypto.Digest) {
+func isInStore(store *store.Store, digest crypto.Digest) bool {
+	_, err := store.Read(digest[:])
+
+	return err == nil
+}
+
+func (corer *Core) checkReference(block *Block) (bool, []crypto.Digest, []crypto.Digest) {
 	var temp []crypto.Digest
+	var localMissBlocks []crypto.Digest
+	var remoteMissBlocks []crypto.Digest
 	for d := range block.Reference {
 		temp = append(temp, d)
 	}
 	ok, missDeigest := corer.localDAG.IsReceived(temp...)
-	return ok, missDeigest
+
+	if !ok {
+		for _, d := range missDeigest {
+			if isInStore(corer.store, d) {
+				localMissBlocks = append(localMissBlocks, d)
+			} else {
+				remoteMissBlocks = append(remoteMissBlocks, d)
+			}
+		}
+		return ok, remoteMissBlocks, localMissBlocks
+	}
+
+	return ok, missDeigest, localMissBlocks
 }
 
 func (corer *Core) getABAInstance(round int, Slot NodeID) *ABA {
@@ -205,10 +228,12 @@ func (corer *Core) handlePropose(propose *ProposeMsg) error {
 	}
 
 	//Step 3: check reference
-	if ok, miss := corer.checkReference(propose.B); !ok {
+	if ok, miss, localMiss := corer.checkReference(propose.B); !ok {
 		//retrieve miss block
-		corer.retriever.requestBlocks(miss, propose.Author, propose.B.Hash())
-
+		corer.retriever.requestBlocks(miss, localMiss, propose.Author, propose.B.Hash())
+		if localMiss != nil {
+			return ErrLocalReference(propose.MsgType(), propose.Round, int(propose.Author), len(miss), len(localMiss))
+		}
 		return ErrReference(propose.MsgType(), propose.Round, int(propose.Author))
 	}
 
@@ -258,8 +283,12 @@ func (corer *Core) handleReplyBlock(reply *ReplyBlockMsg) error {
 func (corer *Core) handleLoopBack(block *Block) error {
 	logger.Debug.Printf("procesing block loop back round %d node %d \n", block.Round, block.Author)
 
-	return corer.handleOutPut(block.Round, block.Author, block.Hash(), block.Reference)
-
+	err := corer.handleOutPut(block.Round, block.Author, block.Hash(), block.Reference)
+	if err == nil {
+		corer.loopDigests <- block.Hash()
+		logger.Warn.Printf("loopback round-%d-node-%d  \n", block.Round, block.Author)
+	}
+	return nil
 }
 
 // ABA
@@ -415,7 +444,7 @@ func (corer *Core) handleOutPut(round int, node NodeID, digest crypto.Digest, re
 	// 	return corer.advancedround(round + 1)
 	// }
 
-	 return nil
+	return nil
 }
 
 func (corer *Core) advancedround(round int) error {
@@ -425,6 +454,9 @@ func (corer *Core) advancedround(round int) error {
 		if propose, err := NewProposeMsg(corer.nodeID, round, block, corer.sigService); err != nil {
 			return err
 		} else {
+			// time.AfterFunc(time.Duration(corer.parameters.NetwrokDelay)*time.Millisecond, func() {
+			// 	corer.transmitor.Send(corer.nodeID, NONE, propose)
+			// })
 			corer.transmitor.Send(corer.nodeID, NONE, propose)
 			corer.transmitor.RecvChannel() <- propose
 		}

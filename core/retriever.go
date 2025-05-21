@@ -16,24 +16,29 @@ type reqRetrieve struct {
 	typ       int
 	reqID     int
 	digest    []crypto.Digest
+	localMiss []crypto.Digest
 	nodeID    NodeID
 	backBlock crypto.Digest
 }
 
 type Retriever struct {
-	nodeID          NodeID
-	transmitor      *Transmitor
-	cnt             int
-	pendding        map[crypto.Digest]struct{} //dealing request
-	requests        map[int]*RequestBlockMsg   //Request
-	loopBackBlocks  map[int]crypto.Digest      // loopback deal block
-	loopBackCnts    map[int]int
-	miss2Blocks     map[crypto.Digest][]int //
-	reqChannel      chan *reqRetrieve
-	sigService      *crypto.SigService
-	store           *store.Store
-	parameters      Parameters
-	loopBackChannel chan<- *Block
+	nodeID           NodeID
+	transmitor       *Transmitor
+	cnt              int
+	pendding         map[crypto.Digest]struct{} //dealing request
+	requests         map[int]*RequestBlockMsg   //Request
+	loopBackBlocks   map[int]crypto.Digest      // loopback deal block
+	loopBackCnts     map[int]int
+	loopBackLocalCnt map[int]int
+	miss2Blocks      map[crypto.Digest][]int //blocks map to reqid
+	miss2LocalBlocks map[crypto.Digest][]int
+	reqChannel       chan *reqRetrieve
+	loopDigests      chan crypto.Digest
+	sigService       *crypto.SigService
+	store            *store.Store
+	parameters       Parameters
+	loopBackChannel  chan<- *Block
+	localDAG         *LocalDAG
 }
 
 func NewRetriever(
@@ -43,27 +48,34 @@ func NewRetriever(
 	sigService *crypto.SigService,
 	parameters Parameters,
 	loopBackChannel chan<- *Block,
+	loopDigests chan crypto.Digest,
+	localDAG *LocalDAG,
 ) *Retriever {
 
 	r := &Retriever{
-		nodeID:          nodeID,
-		cnt:             0,
-		pendding:        make(map[crypto.Digest]struct{}),
-		requests:        make(map[int]*RequestBlockMsg),
-		loopBackBlocks:  make(map[int]crypto.Digest),
-		loopBackCnts:    make(map[int]int),
-		reqChannel:      make(chan *reqRetrieve, 100),
-		miss2Blocks:     make(map[crypto.Digest][]int),
-		store:           store,
-		sigService:      sigService,
-		transmitor:      transmitor,
-		parameters:      parameters,
-		loopBackChannel: loopBackChannel,
+		nodeID:           nodeID,
+		cnt:              0,
+		pendding:         make(map[crypto.Digest]struct{}),
+		requests:         make(map[int]*RequestBlockMsg),
+		loopBackBlocks:   make(map[int]crypto.Digest),
+		loopBackCnts:     make(map[int]int),
+		reqChannel:       make(chan *reqRetrieve, 100),
+		miss2Blocks:      make(map[crypto.Digest][]int),
+		miss2LocalBlocks: make(map[crypto.Digest][]int),
+		loopBackLocalCnt: make(map[int]int),
+		localDAG:         localDAG,
+		store:            store,
+		sigService:       sigService,
+		transmitor:       transmitor,
+		parameters:       parameters,
+		loopBackChannel:  loopBackChannel,
+		loopDigests:      loopDigests,
 	}
 	go r.run()
 
 	return r
 }
+
 
 func (r *Retriever) run() {
 	ticker := time.NewTicker(time.Duration(r.parameters.RetryDelay))
@@ -73,16 +85,30 @@ func (r *Retriever) run() {
 			switch req.typ {
 			case ReqType: //request Block
 				{
+					//logger.Debug.Printf("retrieve block %x \n", req.backBlock)
+					// localMiss:=req.localMiss
+					// remoteMiss:=req.digest
+					ok1, localMiss := r.localDAG.IsReceived(req.localMiss...)
+					ok2, remoteMiss := r.localDAG.IsReceived(req.digest...)
+					if ok1 && ok2 {
+						go r.loopBack(req.backBlock)
+						logger.Debug.Printf("one bug find \n")
+						continue
+					}	
 					r.loopBackBlocks[r.cnt] = req.backBlock
-					r.loopBackCnts[r.cnt] = len(req.digest)
+					r.loopBackCnts[r.cnt] = len(remoteMiss)
+					r.loopBackLocalCnt[r.cnt] = len(localMiss)
 					var missBlocks []crypto.Digest
-					for i := 0; i < len(req.digest); i++ { //filter block that dealing
-						r.miss2Blocks[req.digest[i]] = append(r.miss2Blocks[req.digest[i]], r.cnt)
-						if _, ok := r.pendding[req.digest[i]]; ok {
+					for i := 0; i < len(localMiss); i++ {
+						r.miss2LocalBlocks[localMiss[i]] = append(r.miss2LocalBlocks[localMiss[i]], r.cnt)
+					}
+					for i := 0; i < len(remoteMiss); i++ { //filter block that dealing
+						r.miss2Blocks[remoteMiss[i]] = append(r.miss2Blocks[remoteMiss[i]], r.cnt)
+						if _, ok := r.pendding[remoteMiss[i]]; ok {
 							continue
 						}
-						missBlocks = append(missBlocks, req.digest[i])
-						r.pendding[req.digest[i]] = struct{}{}
+						missBlocks = append(missBlocks, remoteMiss[i])
+						r.pendding[remoteMiss[i]] = struct{}{}
 					}
 
 					if len(missBlocks) > 0 {
@@ -102,7 +128,7 @@ func (r *Retriever) run() {
 						for _, d := range _req.MissBlock {
 							for _, id := range r.miss2Blocks[d] {
 								r.loopBackCnts[id]--
-								if r.loopBackCnts[id] == 0 {
+								if r.loopBackCnts[id] == 0 && r.loopBackLocalCnt[id] == 0 {
 									go r.loopBack(r.loopBackBlocks[id])
 								}
 							}
@@ -111,6 +137,16 @@ func (r *Retriever) run() {
 						delete(r.requests, _req.ReqID) //delete request that finished
 					}
 				}
+			}
+		case d := <-r.loopDigests:
+			{
+				for _, id := range r.miss2LocalBlocks[d] {
+					r.loopBackLocalCnt[id]--
+					if r.loopBackCnts[id] == 0 && r.loopBackLocalCnt[id] == 0 {
+						go r.loopBack(r.loopBackBlocks[id])
+					}
+				}
+				delete(r.pendding, d) // delete
 			}
 		case <-ticker.C: // recycle request
 			{
@@ -128,15 +164,16 @@ func (r *Retriever) run() {
 	}
 }
 
-func (r *Retriever) requestBlocks(digest []crypto.Digest, nodeid NodeID, backBlock crypto.Digest) {
+func (r *Retriever) requestBlocks(digest []crypto.Digest, localmiss []crypto.Digest, nodeid NodeID, backBlock crypto.Digest) {
 	req := &reqRetrieve{
 		typ:       ReqType,
 		digest:    digest,
+		localMiss: localmiss,
 		nodeID:    nodeid,
 		backBlock: backBlock,
 	}
 	r.reqChannel <- req
-	logger.Warn.Printf(" reqChannel <- req 长度：%d", len(r.reqChannel))
+	// logger.Warn.Printf(" reqChannel <- req 长度：%d", len(r.reqChannel))
 	// select {
 	// case r.reqChannel <- req:
 	// 	// 正常写入
@@ -173,6 +210,10 @@ func (r *Retriever) processReply(reply *ReplyBlockMsg) {
 	}
 	r.reqChannel <- req
 }
+
+// func (r *reqRetrieve) processLoopHash(loopDigest crypto.Digest) {
+
+// }
 
 func (r *Retriever) loopBack(blockHash crypto.Digest) {
 	// logger.Debug.Printf("processing loopback")
