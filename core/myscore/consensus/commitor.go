@@ -1,8 +1,10 @@
-package core
+package consensus
 
 import (
+	"WuKong/core"
 	"WuKong/crypto"
 	"WuKong/logger"
+	"WuKong/mempool"
 	"WuKong/store"
 	"sync"
 )
@@ -14,29 +16,30 @@ const (
 	toskip
 	undecide
 	toCommit
+	mvbaing
 )
 
 type LocalDAG struct {
 	store        *store.Store
-	committee    Committee
+	committee    core.Committee
 	muBlock      *sync.RWMutex
-	blockDigests map[crypto.Digest]NodeID // store hash of block that has received
+	blockDigests map[crypto.Digest]core.NodeID // store hash of block that has received
 	muDAG        *sync.RWMutex
-	localDAG     map[int]map[NodeID][]crypto.Digest // local DAG
-	edgesDAG     map[int]map[NodeID][]map[crypto.Digest]NodeID
+	localDAG     map[int]map[core.NodeID][]crypto.Digest // local DAG
+	edgesDAG     map[int]map[core.NodeID][]map[crypto.Digest]core.NodeID
 	muCert       *sync.RWMutex
-	iscertDAG    map[int]map[NodeID]pattern //proposer pattern
+	iscertDAG    map[int]map[core.NodeID]pattern //proposer pattern
 }
 
-func NewLocalDAG(store *store.Store, committee Committee) *LocalDAG {
+func NewLocalDAG(store *store.Store, committee core.Committee) *LocalDAG {
 	return &LocalDAG{
 		muBlock:      &sync.RWMutex{},
 		muDAG:        &sync.RWMutex{},
 		muCert:       &sync.RWMutex{},
-		blockDigests: make(map[crypto.Digest]NodeID),
-		localDAG:     make(map[int]map[NodeID][]crypto.Digest),
-		edgesDAG:     make(map[int]map[NodeID][]map[crypto.Digest]NodeID),
-		iscertDAG:    make(map[int]map[NodeID]pattern),
+		blockDigests: make(map[crypto.Digest]core.NodeID),
+		localDAG:     make(map[int]map[core.NodeID][]crypto.Digest),
+		edgesDAG:     make(map[int]map[core.NodeID][]map[crypto.Digest]core.NodeID),
+		iscertDAG:    make(map[int]map[core.NodeID]pattern),
 		store:        store,
 		committee:    committee,
 	}
@@ -59,7 +62,7 @@ func (local *LocalDAG) IsReceived(digests ...crypto.Digest) (bool, []crypto.Dige
 	return flag, miss
 }
 
-func (local *LocalDAG) ReceiveBlock(round int, node NodeID, digest crypto.Digest, references map[crypto.Digest]NodeID) {
+func (local *LocalDAG) ReceiveBlock(round int, node core.NodeID, digest crypto.Digest, references map[crypto.Digest]core.NodeID) {
 	local.muBlock.RLock()
 	if _, ok := local.blockDigests[digest]; ok {
 		local.muBlock.RUnlock()
@@ -67,7 +70,7 @@ func (local *LocalDAG) ReceiveBlock(round int, node NodeID, digest crypto.Digest
 	}
 	local.muBlock.RUnlock()
 
-	logger.Debug.Printf("ReceiveBlock: round=%d node=%d digest=%x", round, node, digest)
+	logger.Debug.Printf("ReceiveBlock: round=%d node=%d ", round, node)
 	local.muBlock.Lock()
 	local.blockDigests[digest] = node
 	local.muBlock.Unlock()
@@ -76,19 +79,19 @@ func (local *LocalDAG) ReceiveBlock(round int, node NodeID, digest crypto.Digest
 
 	vslot, ok := local.localDAG[round]
 	if !ok {
-		vslot = make(map[NodeID][]crypto.Digest)
+		vslot = make(map[core.NodeID][]crypto.Digest)
 		local.localDAG[round] = vslot
 	}
 
 	eslot, ok := local.edgesDAG[round]
 	if !ok {
-		eslot = make(map[NodeID][]map[crypto.Digest]NodeID)
+		eslot = make(map[core.NodeID][]map[crypto.Digest]core.NodeID)
 		local.edgesDAG[round] = eslot
 	}
 
 	certslot, ok := local.iscertDAG[round]
 	if !ok {
-		certslot = make(map[NodeID]pattern)
+		certslot = make(map[core.NodeID]pattern)
 		local.iscertDAG[round] = certslot
 	}
 
@@ -107,7 +110,7 @@ func (local *LocalDAG) GetRoundReceivedBlockNums(round int) (nums int) {
 	return
 }
 
-func (local *LocalDAG) GetReceivedBlock(round int, node NodeID) ([]crypto.Digest, bool) {
+func (local *LocalDAG) GetReceivedBlock(round int, node core.NodeID) ([]crypto.Digest, bool) {
 	local.muDAG.RLock()
 	defer local.muDAG.RUnlock()
 	if slot, ok := local.localDAG[round]; ok {
@@ -117,7 +120,7 @@ func (local *LocalDAG) GetReceivedBlock(round int, node NodeID) ([]crypto.Digest
 	return nil, false
 }
 
-func (local *LocalDAG) GetReceivedBlockReference(round int, node NodeID) (map[crypto.Digest]NodeID, bool) {
+func (local *LocalDAG) GetReceivedBlockReference(round int, node core.NodeID) (map[crypto.Digest]core.NodeID, bool) {
 	local.muDAG.RLock()
 	defer local.muDAG.RUnlock()
 	if slot, ok := local.edgesDAG[round]; ok {
@@ -129,13 +132,13 @@ func (local *LocalDAG) GetReceivedBlockReference(round int, node NodeID) (map[cr
 	return nil, false
 }
 
-func (local *LocalDAG) GetRoundReceivedBlock(round int) map[NodeID][]crypto.Digest {
+func (local *LocalDAG) GetRoundReceivedBlock(round int) map[core.NodeID][]crypto.Digest {
 	local.muDAG.RLock()
 	defer local.muDAG.RUnlock()
 
 	original := local.localDAG[round]
 
-	copied := make(map[NodeID][]crypto.Digest, len(original))
+	copied := make(map[core.NodeID][]crypto.Digest, len(original))
 	for k, v := range original {
 		tmp := make([]crypto.Digest, len(v))
 		copy(tmp, v)
@@ -145,17 +148,35 @@ func (local *LocalDAG) GetRoundReceivedBlock(round int) map[NodeID][]crypto.Dige
 	return copied
 }
 
-func (local *LocalDAG) GetRoundReceivedBlocks(round int) (references map[crypto.Digest]NodeID) {
+func (local *LocalDAG) GetRoundReceivedBlocks(round int) (references map[crypto.Digest]core.NodeID) {
 	local.muDAG.RLock()
 	defer local.muDAG.RUnlock()
 
 	blocks := local.localDAG[round]
 
-	references = make(map[crypto.Digest]NodeID)
+	references = make(map[crypto.Digest]core.NodeID)
 	for id, digests := range blocks {
 		references[digests[0]] = id
 	}
 	return references
+}
+
+func (local *LocalDAG) GetsMVBAValue(round int) []crypto.Digest {
+
+	references := local.GetRoundReceivedBlock(round)
+
+	var sMVBAValue []crypto.Digest
+
+	for i := 0; i < local.committee.Size(); i++ {
+		digest, ok := references[core.NodeID(i)]
+		if !ok {
+			sMVBAValue = append(sMVBAValue, crypto.Digest{})
+		} else {
+			sMVBAValue = append(sMVBAValue, digest[0])
+		}
+	}
+
+	return sMVBAValue
 }
 
 // judge if bvote refer to bproposer
@@ -167,7 +188,7 @@ func (local *LocalDAG) isVote(Bproposer *Block, Bvote *Block) bool {
 
 }
 
-func (local *LocalDAG) supportedblock(b *Block, id NodeID, r int) crypto.Digest {
+func (local *LocalDAG) supportedblock(b *Block, id core.NodeID, r int) crypto.Digest {
 
 	digests := b.Reference
 
@@ -203,19 +224,19 @@ func (local *LocalDAG) isCert(Bproposer *Block, Bcert *Block) bool {
 
 }
 
-func (local *LocalDAG) GetVotingBlocks(round int) map[NodeID][]crypto.Digest {
+func (local *LocalDAG) GetVotingBlocks(round int) map[core.NodeID][]crypto.Digest {
 
 	return local.GetRoundReceivedBlock(round)
 
 }
 
-func (local *LocalDAG) GetDecisonBlocks(b *Block) map[NodeID][]crypto.Digest {
+func (local *LocalDAG) GetDecisonBlocks(b *Block) map[core.NodeID][]crypto.Digest {
 
 	return local.GetRoundReceivedBlock(b.Round + 2)
 
 }
 
-func (local *LocalDAG) skippedProposer(id NodeID, round int) bool {
+func (local *LocalDAG) skippedProposer(id core.NodeID, round int) bool {
 	var res int = 0
 
 	blocks := local.GetVotingBlocks(round + 1)
@@ -239,7 +260,7 @@ func (local *LocalDAG) skippedProposer(id NodeID, round int) bool {
 	return res >= local.committee.HightThreshold()
 }
 
-func containsValue(m map[crypto.Digest]NodeID, target NodeID) bool {
+func containsValue(m map[crypto.Digest]core.NodeID, target core.NodeID) bool {
 	for _, v := range m {
 		if v == target {
 			return true
@@ -272,16 +293,21 @@ func (local *LocalDAG) committedProposer(b *Block) (bool, int, crypto.Digest) {
 
 type ABAid struct {
 	round      int
-	slot       NodeID
+	slot       core.NodeID
 	flag       uint8
 	localstate uint8
 	abablock   crypto.Digest
 	certblock  crypto.Digest
 }
 
+type SMVBAid struct {
+	epoch      int
+	blockhashs []crypto.Digest
+}
+
 type commitMsg struct {
 	round  int
-	node   NodeID
+	node   core.NodeID
 	ptern  pattern
 	digest crypto.Digest
 }
@@ -294,36 +320,73 @@ type Commitor struct {
 	notifycommit  chan *commitMsg
 	inner         chan crypto.Digest
 	store         *store.Store
-	startABA      chan<- *ABAid
-	commitRound   int
-	commitNode    NodeID
-	judinground   int
-	judingnode    NodeID
-	mucDAG        *sync.RWMutex
-	commitDAG     map[int]map[NodeID]crypto.Digest
-	certDAG       map[int]map[NodeID]pattern
+
+	//mempool    *mempool.Mempool
+	transmitor      *core.Transmitor
+	pendingPayloads map[crypto.Digest]chan struct{} // digest -> waiting channel
+	muPending       *sync.RWMutex
+	notifyPload     chan crypto.Digest
+
+	startABA    chan<- *ABAid
+	commitRound int
+	commitNode  core.NodeID
+	judinground int
+	judingnode  core.NodeID
+	mucDAG      *sync.RWMutex
+	commitDAG   map[int]map[core.NodeID]crypto.Digest
+	certDAG     map[int]map[core.NodeID]pattern
+
+	//sMVBA
+	sMVBAStart chan *SMVBAid
 }
 
-func NewCommitor(localDAG *LocalDAG, store *store.Store, commitChannel chan<- *Block, startABA chan<- *ABAid) *Commitor {
+func NewCommitor(localDAG *LocalDAG, store *store.Store, commitChannel chan<- *Block, startABA chan<- *ABAid, t *core.Transmitor, notify chan crypto.Digest, smvba chan *SMVBAid) *Commitor {
 	c := &Commitor{
 		mucDAG:        &sync.RWMutex{},
 		localDAG:      localDAG,
 		commitChannel: commitChannel,
 		commitBlocks:  make(map[crypto.Digest]struct{}),
 		notify:        make(chan struct{}, 100),
-		commitDAG:     make(map[int]map[NodeID]crypto.Digest),
-		certDAG:       make(map[int]map[NodeID]pattern),
+		commitDAG:     make(map[int]map[core.NodeID]crypto.Digest),
+		certDAG:       make(map[int]map[core.NodeID]pattern),
 		notifycommit:  make(chan *commitMsg, 1000),
 		store:         store,
-		inner:         make(chan crypto.Digest, 100),
-		startABA:      startABA,
-		commitRound:   0,
-		commitNode:    0,
-		judinground:   0,
-		judingnode:    0,
+
+		commitRound: 0,
+		commitNode:  0,
+		judinground: 0,
+		judingnode:  0,
+
+		transmitor: t,
+		//mempool:       mempool,
+		pendingPayloads: make(map[crypto.Digest]chan struct{}),
+		muPending:       &sync.RWMutex{},
+		notifyPload:     notify,
+
+		inner:    make(chan crypto.Digest, 100),
+		startABA: startABA,
+
+		sMVBAStart: smvba,
 	}
 	go c.run()
 	return c
+}
+
+func (c *Commitor) waitForPayload(digest crypto.Digest) {
+	c.muPending.Lock()
+	ch, ok := c.pendingPayloads[digest]
+	if !ok {
+		ch = make(chan struct{}, 1)
+		c.pendingPayloads[digest] = ch
+	}
+	c.muPending.Unlock()
+	// 阻塞等待直到 payload 被收到并写入此通道
+	<-ch
+	logger.Debug.Printf("channel receive \n")
+	c.muPending.Lock()
+	delete(c.pendingPayloads, digest)
+	c.muPending.Unlock()
+
 }
 
 func (c *Commitor) run() {
@@ -333,11 +396,44 @@ func (c *Commitor) run() {
 			if block, err := getBlock(c.store, digest); err != nil {
 				logger.Warn.Println(err)
 			} else {
-				if block.Batch.Txs != nil {
-					//BenchMark Log
-					logger.Info.Printf("commit Block round %d node %d batch_id %d \n", block.Round, block.Author, block.Batch.ID)
+
+				flag := false
+				for _, d := range block.PayLoads {
+					payload, err := GetPayload(c.store, d)
+					if err != nil {
+						logger.Debug.Printf("miss payload round %d node %d\n", block.Round, block.Author)
+						//  1. 向网络请求缺失 payload
+
+						msg := &mempool.VerifyBlockMsg{
+							Proposer:           block.Author,
+							Epoch:              int64(block.Round),
+							Payloads:           block.PayLoads,
+							ConsensusBlockHash: block.Hash(),
+							Sender:             make(chan mempool.VerifyStatus),
+						}
+
+						c.transmitor.ConnectRecvChannel() <- msg
+						status := <-msg.Sender
+						if status != mempool.OK {
+							//  2. 等待 payload 补全（阻塞等待）
+
+							c.waitForPayload(digest)
+							logger.Debug.Printf("receive payload by verify \n")
+						}
+						payload, _ = GetPayload(c.store, d)
+					}
+					if payload.Batch.ID != -1 {
+						flag = true
+						logger.Info.Printf("commit batch %d \n", payload.Batch.ID)
+					}
+
 				}
 				c.commitChannel <- block
+				// if len(block.PayLoads)==1&&
+				if flag {
+					logger.Info.Printf("commit Block round %d node %d \n", block.Round, block.Author)
+				}
+
 			}
 		}
 	}()
@@ -347,30 +443,56 @@ func (c *Commitor) run() {
 			c.receivePattern(m)
 		}
 	}()
-
+	go func() {
+		for digest := range c.notifyPload {
+			c.muPending.RLock()
+			if ch, ok := c.pendingPayloads[digest]; ok {
+				select {
+				case ch <- struct{}{}: // 通知已经到达
+				default: // 防止阻塞，如果已经有人写过了就跳过
+				}
+			}
+			c.muPending.RUnlock()
+		}
+	}()
 	for range c.notify {
 		c.judgePattern()
 
 	}
 }
 
+func (c *Commitor) ifLossLiveness(round int) bool {
+	//c.mucDAG.RLock()
+	roundPattern := c.certDAG[round]
+
+	// c.mucDAG.RUnlock()
+
+	if len(roundPattern) != c.localDAG.committee.Size() {
+		return false
+	}
+	for _, item := range roundPattern {
+		if item != toskip {
+			return false
+		}
+	}
+	return true
+}
+
 func (c *Commitor) judgePattern() {
 	for {
 
 		if c.localDAG.GetRoundReceivedBlockNums(c.judinground+1) >= c.localDAG.committee.HightThreshold() {
-			logger.Debug.Printf("judgding  round %d node %d  \n", c.judinground, c.judingnode)
 			if c.localDAG.skippedProposer(c.judingnode, c.judinground) {
-				logger.Debug.Printf("judge  round %d node %d toskip \n", c.judinground, c.judingnode)
+
 				c.notifycommit <- &commitMsg{
 					round:  c.judinground,
 					node:   c.judingnode,
 					ptern:  toskip,
 					digest: crypto.Digest{},
 				}
-				c.advancedJudingPointer()
-				// if c.ifLossLiveness() {
 
-				// }
+				c.advancedJudingPointer()
+
 				continue
 			} else if c.localDAG.GetRoundReceivedBlockNums(c.judinground+2) >= c.localDAG.committee.HightThreshold() {
 				c.localDAG.muDAG.RLock()
@@ -468,6 +590,8 @@ func (c *Commitor) tryToCommit() {
 				break
 			} else if ptern[c.commitNode] == unjudge {
 				break
+			} else if ptern[c.commitNode] == mvbaing {
+				break
 			}
 		}
 
@@ -479,20 +603,46 @@ func (c *Commitor) receivePattern(m *commitMsg) {
 	c.mucDAG.Lock()
 	defer c.mucDAG.Unlock()
 	if _, ok := c.certDAG[m.round]; !ok {
-		c.certDAG[m.round] = make(map[NodeID]pattern)
+		c.certDAG[m.round] = make(map[core.NodeID]pattern)
 	}
 	c.certDAG[m.round][m.node] = m.ptern
 
-	if m.ptern == toCommit {
+	if m.ptern == toskip {
+		if c.ifLossLiveness(m.round) {
+
+			for ix := 0; ix < c.localDAG.committee.Size(); ix++ {
+				c.certDAG[m.round][core.NodeID(ix)] = mvbaing
+			}
+
+			//modify commitPointer
+			if c.commitRound < m.round {
+
+			} else if c.commitRound == m.round {
+				c.commitNode = core.NodeID(0)
+				logger.Debug.Printf("modify commitpointer round %d node %d \n", c.commitRound, c.commitNode)
+			} else if c.commitRound > m.round {
+				c.commitRound = m.round
+				c.commitNode = core.NodeID(0)
+				logger.Debug.Printf("modify commitpointer round %d node %d \n", c.commitRound, c.commitNode)
+			}
+			value := c.localDAG.GetsMVBAValue(m.round)
+			//start sMvba
+			c.sMVBAStart <- &SMVBAid{
+				epoch:      m.round,
+				blockhashs: value,
+			}
+		}
+	} else if m.ptern == toCommit {
 		if _, ok := c.commitDAG[m.round]; !ok {
-			c.commitDAG[m.round] = make(map[NodeID]crypto.Digest)
+			c.commitDAG[m.round] = make(map[core.NodeID]crypto.Digest)
 		}
 		c.commitDAG[m.round][m.node] = m.digest
 	}
+
 	c.tryToCommit()
 }
 
-func (c *Commitor) IsReceivePattern(round int, slot NodeID) pattern {
+func (c *Commitor) IsReceivePattern(round int, slot core.NodeID) pattern {
 	c.mucDAG.RLock()
 	defer c.mucDAG.RUnlock()
 	item, ok := c.certDAG[round]
@@ -508,7 +658,7 @@ func (c *Commitor) IsReceivePattern(round int, slot NodeID) pattern {
 
 func (c *Commitor) advancedJudingPointer() {
 	c.judingnode++
-	if c.judingnode >= NodeID(c.localDAG.committee.Size()) {
+	if c.judingnode >= core.NodeID(c.localDAG.committee.Size()) {
 		c.judingnode = 0
 		c.judinground++
 	}
@@ -516,7 +666,7 @@ func (c *Commitor) advancedJudingPointer() {
 
 func (c *Commitor) advancedCommitPointer() {
 	c.commitNode++
-	if c.commitNode >= NodeID(c.localDAG.committee.Size()) {
+	if c.commitNode >= core.NodeID(c.localDAG.committee.Size()) {
 		c.commitNode = 0
 		c.commitRound++
 	}

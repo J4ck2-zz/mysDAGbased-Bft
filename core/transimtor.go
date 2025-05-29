@@ -2,13 +2,20 @@ package core
 
 import (
 	"WuKong/network"
-	"time"
 )
+
+type Message interface {
+	MsgType() int
+	Module() string // return "mempool" or "consensus" or connect
+
+}
 
 type Transmitor struct {
 	sender     *network.Sender
 	receiver   *network.Receiver
-	recvCh     chan ConsensusMessage
+	mempoolCh  chan Message //mempool内部通道
+	connectCh  chan Message //mempool和consensus通信通道
+	recvCh     chan Message //consensus通信通道
 	msgCh      chan *network.NetMessage
 	parameters Parameters
 	committee  Committee
@@ -24,8 +31,10 @@ func NewTransmitor(
 	tr := &Transmitor{
 		sender:     sender,
 		receiver:   receiver,
-		recvCh:     make(chan ConsensusMessage, 1_000),
-		msgCh:      make(chan *network.NetMessage, 1_000),
+		mempoolCh:  make(chan Message, 100_000),
+		connectCh:  make(chan Message, 100_000),
+		recvCh:     make(chan Message, 100_000),
+		msgCh:      make(chan *network.NetMessage, 100_000),
 		parameters: parameters,
 		committee:  committee,
 	}
@@ -38,14 +47,19 @@ func NewTransmitor(
 
 	go func() {
 		for msg := range tr.receiver.RecvChannel() {
-			tr.recvCh <- msg.(ConsensusMessage)
+			switch msg.Module() {
+			case "mempool":
+				tr.mempoolCh <- msg
+			case "consensus":
+				tr.recvCh <- msg
+			}
 		}
 	}()
 
 	return tr
 }
 
-func (tr *Transmitor) Send(from, to NodeID, msg ConsensusMessage) error {
+func (tr *Transmitor) Send(from, to NodeID, msg Message) error {
 	var addr []string
 
 	if to == NONE {
@@ -55,27 +69,39 @@ func (tr *Transmitor) Send(from, to NodeID, msg ConsensusMessage) error {
 	}
 
 	// filter
-	if tr.parameters.DDos && msg.MsgType() == ProposeMsgType {
-		time.AfterFunc(time.Millisecond*time.Duration(tr.parameters.NetwrokDelay), func() {
-			tr.msgCh <- &network.NetMessage{
-				Msg:     msg,
-				Address: addr,
-			}
-		})
-	} else {
-		tr.msgCh <- &network.NetMessage{
-			Msg:     msg,
-			Address: addr,
-		}
+	// if tr.parameters.DDos && msg.MsgType() == ProposeMsgType {
+	// 	time.AfterFunc(time.Millisecond*time.Duration(tr.parameters.NetwrokDelay), func() {
+	// 		tr.msgCh <- &network.NetMessage{
+	// 			Msg:     msg,
+	// 			Address: addr,
+	// 		}
+	// 	})
+	// } else {
+	// 	tr.msgCh <- &network.NetMessage{
+	// 		Msg:     msg,
+	// 		Address: addr,
+	// 	}
+	// }
+	tr.msgCh <- &network.NetMessage{
+		Msg:     msg,
+		Address: addr,
 	}
 
 	return nil
 }
 
-func (tr *Transmitor) Recv() ConsensusMessage {
+func (tr *Transmitor) Recv() Message {
 	return <-tr.recvCh
 }
 
-func (tr *Transmitor) RecvChannel() chan ConsensusMessage {
+func (tr *Transmitor) RecvChannel() chan Message {
 	return tr.recvCh
+}
+
+func (tr *Transmitor) MempololRecvChannel() chan Message { //mempool部分的消息通道
+	return tr.mempoolCh
+}
+
+func (tr *Transmitor) ConnectRecvChannel() chan Message { //mempool部分的消息通道
+	return tr.connectCh
 }

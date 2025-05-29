@@ -1,8 +1,10 @@
-package core
+package consensus
 
 import (
+	"WuKong/core"
 	"WuKong/crypto"
 	"WuKong/logger"
+	"WuKong/mempool"
 	"WuKong/pool"
 	"WuKong/store"
 	"sync"
@@ -10,36 +12,54 @@ import (
 )
 
 type Core struct {
-	nodeID          NodeID
-	round           int
-	committee       Committee
-	parameters      Parameters
-	txpool          *pool.Pool
-	transmitor      *Transmitor
-	sigService      *crypto.SigService
-	store           *store.Store
-	retriever       *Retriever
-	commitor        *Commitor
-	localDAG        *LocalDAG
-	Aggreator       *Aggreator
+	nodeID     core.NodeID
+	round      int
+	committee  core.Committee
+	parameters core.Parameters
+	txpool     *pool.Pool
+	transmitor *core.Transmitor
+	sigService *crypto.SigService
+	store      *store.Store
+	retriever  *Retriever
+	commitor   *Commitor
+	localDAG   *LocalDAG
+
+	MemPool            *mempool.Mempool
+	mempoolbackchannel chan crypto.Digest
+	pendingPayloads    map[crypto.Digest]chan *mempool.Payload // digest -> waiting channel
+	muPending          *sync.RWMutex
+
 	loopBackChannel chan *Block
 	loopDigests     chan crypto.Digest
 	commitChannel   chan<- *Block
 	proposedFlag    map[int]struct{}
-	startABA        chan *ABAid
-	abaInstances    map[int]map[NodeID]*ABA
-	muABAIvokeFlag  *sync.RWMutex
-	abaInvokeFlag   map[int]map[NodeID]map[int]map[uint8]struct{} //aba invoke flag  round Slot inround flag
-	abaCallBack     chan *ABABack
-	delayRoundCh    chan int
+
+	startABA       chan *ABAid
+	abaInstances   map[int]map[core.NodeID]*ABA
+	muABAIvokeFlag *sync.RWMutex
+	abaInvokeFlag  map[int]map[core.NodeID]map[int]map[uint8]struct{} //aba invoke flag  round Slot inround flag
+	abaCallBack    chan *ABABack
+	Aggreator      *Aggreator
+
+	delayRoundCh chan int
+	notifyPLoad  chan crypto.Digest
+
+	Elector      *Elector
+	FinishFlags  map[int64]map[int64]map[core.NodeID]crypto.Digest // finish? map[epoch][round][node] = blockHash
+	SPbInstances map[int64]map[int64]map[core.NodeID]*SPB          // map[epoch][node][round]
+	DoneFlags    map[int64]map[int64]struct{}
+	ReadyFlags   map[int64]map[int64]struct{}
+	HaltFlags    map[int64]struct{}
+	Epoch        int64
+	sMVBAStart   chan *SMVBAid
 }
 
 func NewCore(
-	nodeID NodeID,
-	committee Committee,
-	parameters Parameters,
+	nodeID core.NodeID,
+	committee core.Committee,
+	parameters core.Parameters,
 	txpool *pool.Pool,
-	transmitor *Transmitor,
+	transmitor *core.Transmitor,
 	store *store.Store,
 	sigService *crypto.SigService,
 	commitChannel chan<- *Block,
@@ -47,6 +67,12 @@ func NewCore(
 	loopBackChannel := make(chan *Block, 1_000)
 	startABA := make(chan *ABAid, 1000)
 	loopDigest := make(chan crypto.Digest, 100)
+	mempoolbackchannel := make(chan crypto.Digest, 100)
+	notifypload := make(chan crypto.Digest, 100)
+	sMVBAStart := make(chan *SMVBAid)
+
+	Sync := mempool.NewSynchronizer(nodeID, transmitor, mempoolbackchannel, store)
+	pool := mempool.NewMempool(nodeID, committee, parameters, sigService, store, txpool, transmitor, Sync)
 	corer := &Core{
 		nodeID:          nodeID,
 		committee:       committee,
@@ -59,21 +85,55 @@ func NewCore(
 		loopBackChannel: loopBackChannel,
 		loopDigests:     loopDigest,
 		commitChannel:   commitChannel,
-		localDAG:        NewLocalDAG(store, committee),
-		Aggreator:       NewAggreator(committee, sigService),
-		proposedFlag:    make(map[int]struct{}),
-		startABA:        startABA,
-		abaInstances:    make(map[int]map[NodeID]*ABA),
-		muABAIvokeFlag:  &sync.RWMutex{},
-		abaInvokeFlag:   make(map[int]map[NodeID]map[int]map[uint8]struct{}),
-		abaCallBack:     make(chan *ABABack, 100),
-		delayRoundCh:    make(chan int, 100),
+
+		MemPool:            pool,
+		pendingPayloads:    make(map[crypto.Digest]chan *mempool.Payload),
+		muPending:          &sync.RWMutex{},
+		mempoolbackchannel: mempoolbackchannel,
+
+		localDAG:       NewLocalDAG(store, committee),
+		Aggreator:      NewAggreator(committee, sigService),
+		proposedFlag:   make(map[int]struct{}),
+		startABA:       startABA,
+		abaInstances:   make(map[int]map[core.NodeID]*ABA),
+		muABAIvokeFlag: &sync.RWMutex{},
+		abaInvokeFlag:  make(map[int]map[core.NodeID]map[int]map[uint8]struct{}),
+		abaCallBack:    make(chan *ABABack, 100),
+
+		delayRoundCh: make(chan int, 100),
+		notifyPLoad:  notifypload,
+
+		Elector:      NewElector(sigService, committee),
+		FinishFlags:  make(map[int64]map[int64]map[core.NodeID]crypto.Digest),
+		SPbInstances: make(map[int64]map[int64]map[core.NodeID]*SPB),
+		DoneFlags:    make(map[int64]map[int64]struct{}),
+		ReadyFlags:   make(map[int64]map[int64]struct{}),
+		HaltFlags:    make(map[int64]struct{}),
+		sMVBAStart:   sMVBAStart,
 	}
 
 	corer.retriever = NewRetriever(nodeID, store, transmitor, sigService, parameters, loopBackChannel, loopDigest, corer.localDAG)
-	corer.commitor = NewCommitor(corer.localDAG, store, commitChannel, startABA)
+	corer.commitor = NewCommitor(corer.localDAG, store, commitChannel, startABA, transmitor, notifypload, sMVBAStart)
 
 	return corer
+}
+
+func GetPayload(s *store.Store, digest crypto.Digest) (*mempool.Payload, error) {
+	value, err := s.Read(digest[:])
+
+	if err == store.ErrNotFoundKey {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	b := &mempool.Payload{}
+	if err := b.Decode(value); err != nil {
+		return nil, err
+	}
+	return b, err
 }
 
 func storeBlock(store *store.Store, block *Block) error {
@@ -127,10 +187,10 @@ func (corer *Core) checkReference(block *Block) (bool, []crypto.Digest, []crypto
 	return ok, missDeigest, localMissBlocks
 }
 
-func (corer *Core) getABAInstance(round int, Slot NodeID) *ABA {
+func (corer *Core) getABAInstance(round int, Slot core.NodeID) *ABA {
 	items, ok := corer.abaInstances[round]
 	if !ok {
-		items = make(map[NodeID]*ABA)
+		items = make(map[core.NodeID]*ABA)
 		corer.abaInstances[round] = items
 	}
 	instance, ok := items[Slot]
@@ -141,7 +201,7 @@ func (corer *Core) getABAInstance(round int, Slot NodeID) *ABA {
 	return instance
 }
 
-func (corer *Core) isInvokeABA(round int, Slotid NodeID, inRound int, tag uint8) bool {
+func (corer *Core) isInvokeABA(round int, Slotid core.NodeID, inRound int, tag uint8) bool {
 	flags, ok := corer.abaInvokeFlag[round]
 	if !ok {
 		return false
@@ -158,7 +218,7 @@ func (corer *Core) isInvokeABA(round int, Slotid NodeID, inRound int, tag uint8)
 	return ok
 }
 
-func (corer *Core) hasInvokeABA(round int, Slot NodeID) bool {
+func (corer *Core) hasInvokeABA(round int, Slot core.NodeID) bool {
 	corer.muABAIvokeFlag.RLock()
 	defer corer.muABAIvokeFlag.RUnlock()
 	flags, ok := corer.abaInvokeFlag[round]
@@ -180,12 +240,18 @@ func (corer *Core) generatorBlock(round int) *Block {
 
 	var block *Block
 	if _, ok := corer.proposedFlag[round]; !ok {
+		referencechan := make(chan []crypto.Digest)
+		msg := &mempool.MakeConsensusBlockMsg{
+			MaxPayloadSize: uint64(MAXCOUNT), Payloads: referencechan,
+		}
+		corer.transmitor.ConnectRecvChannel() <- msg
+		payloads := <-referencechan
 		if round == 0 {
 			block = &Block{
 				Author:    corer.nodeID,
 				Round:     round,
-				Batch:     corer.txpool.GetBatch(),
-				Reference: make(map[crypto.Digest]NodeID),
+				PayLoads:  payloads,
+				Reference: make(map[crypto.Digest]core.NodeID),
 				TimeStamp: time.Now().Unix(),
 			}
 		} else {
@@ -194,20 +260,20 @@ func (corer *Core) generatorBlock(round int) *Block {
 				block = &Block{
 					Author:    corer.nodeID,
 					Round:     round,
-					Batch:     corer.txpool.GetBatch(),
+					PayLoads:  payloads,
 					Reference: reference,
+					//Reference: make(map[crypto.Digest]core.NodeID),
 					TimeStamp: time.Now().Unix(),
 				}
 			}
 		}
 	}
 
+	//BenchMark Log
+
 	if block != nil {
 		corer.proposedFlag[round] = struct{}{}
-		if block.Batch.Txs != nil {
-			//BenchMark Log
-			logger.Info.Printf("create Block round %d node %d batch_id %d \n", block.Round, block.Author, block.Batch.ID)
-		}
+		logger.Info.Printf("create Block round %d node %d \n", block.Round, block.Author)
 	}
 
 	return block
@@ -231,19 +297,40 @@ func (corer *Core) handlePropose(propose *ProposeMsg) error {
 	if ok, miss, localMiss := corer.checkReference(propose.B); !ok {
 		//retrieve miss block
 		corer.retriever.requestBlocks(miss, localMiss, propose.Author, propose.B.Hash())
+
+		if status := corer.checkPayloads(propose.B); status != mempool.OK {
+			logger.Debug.Printf("[round-%d-node-%d] not receive all payloads\n ", propose.Round, propose.Author)
+		}
 		if localMiss != nil {
 			return ErrLocalReference(propose.MsgType(), propose.Round, int(propose.Author), len(miss), len(localMiss))
 		}
 		return ErrReference(propose.MsgType(), propose.Round, int(propose.Author))
 	}
 
-	//Step 4: write to dag
+	//Step 4:check payloads
+	if status := corer.checkPayloads(propose.B); status != mempool.OK {
+		return ErrLossPayloads(propose.Round, int(propose.Author))
+	}
 
+	//Step 5: write to dag
 	if err := corer.handleOutPut(propose.B.Round, propose.B.Author, propose.B.Hash(), propose.B.Reference); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (corer *Core) checkPayloads(block *Block) mempool.VerifyStatus {
+	msg := &mempool.VerifyBlockMsg{
+		Proposer:           block.Author,
+		Epoch:              int64(block.Round),
+		Payloads:           block.PayLoads,
+		ConsensusBlockHash: block.Hash(),
+		Sender:             make(chan mempool.VerifyStatus),
+	}
+	corer.transmitor.ConnectRecvChannel() <- msg
+	status := <-msg.Sender
+	return status
 }
 
 func (corer *Core) handleRequestBlock(request *RequestBlockMsg) error {
@@ -269,6 +356,10 @@ func (corer *Core) handleReplyBlock(reply *ReplyBlockMsg) error {
 
 	for _, block := range reply.Blocks {
 
+		status := corer.checkPayloads(block)
+		if status != mempool.OK {
+			continue
+		}
 		//maybe execute more one
 		storeBlock(corer.store, block)
 
@@ -282,12 +373,34 @@ func (corer *Core) handleReplyBlock(reply *ReplyBlockMsg) error {
 
 func (corer *Core) handleLoopBack(block *Block) error {
 	logger.Debug.Printf("procesing block loop back round %d node %d \n", block.Round, block.Author)
-
+	status := corer.checkPayloads(block)
+	if status != mempool.OK {
+		return ErrLossPayloads(block.Round, int(block.Author))
+	}
 	err := corer.handleOutPut(block.Round, block.Author, block.Hash(), block.Reference)
 	if err == nil {
 		corer.loopDigests <- block.Hash()
 		logger.Warn.Printf("loopback round-%d-node-%d  \n", block.Round, block.Author)
 	}
+	return nil
+}
+
+// mempool
+func (corer *Core) handleMLoopBack(digest crypto.Digest) error {
+	corer.notifyPLoad <- digest
+
+	//re output
+	block, _ := getBlock(corer.store, digest)
+
+	if ok, _, _ := corer.checkReference(block); ok {
+		err := corer.handleOutPut(block.Round, block.Author, block.Hash(), block.Reference)
+		if err == nil {
+			corer.loopDigests <- block.Hash()
+			logger.Warn.Printf("mloopback round-%d-node-%d  \n", block.Round, block.Author)
+		}
+		return err
+	}
+
 	return nil
 }
 
@@ -297,7 +410,7 @@ func (corer *Core) processABAId(m *ABAid) error {
 	return corer.invokeABAVal(m.round, m.slot, 0, m.flag, m.localstate)
 }
 
-func (corer *Core) invokeABAVal(round int, Slot NodeID, inRound int, flag uint8, localstate uint8) error {
+func (corer *Core) invokeABAVal(round int, Slot core.NodeID, inRound int, flag uint8, localstate uint8) error {
 	corer.muABAIvokeFlag.Lock()
 	defer corer.muABAIvokeFlag.Unlock()
 	if corer.isInvokeABA(round, Slot, inRound, flag) {
@@ -306,7 +419,7 @@ func (corer *Core) invokeABAVal(round int, Slot NodeID, inRound int, flag uint8,
 	logger.Debug.Printf("Invoke ABA round %d Slot %d in_round %d val %d\n", round, Slot, inRound, flag)
 	flags, ok := corer.abaInvokeFlag[round]
 	if !ok {
-		flags = make(map[NodeID]map[int]map[uint8]struct{})
+		flags = make(map[core.NodeID]map[int]map[uint8]struct{})
 		corer.abaInvokeFlag[round] = flags
 	}
 	items, ok := flags[Slot]
@@ -321,7 +434,7 @@ func (corer *Core) invokeABAVal(round int, Slot NodeID, inRound int, flag uint8,
 	}
 	item[flag] = struct{}{}
 	abaVal, _ := NewABAVal(corer.nodeID, round, Slot, inRound, flag, corer.sigService, localstate)
-	corer.transmitor.Send(corer.nodeID, NONE, abaVal)
+	corer.transmitor.Send(corer.nodeID, core.NONE, abaVal)
 	corer.transmitor.RecvChannel() <- abaVal
 
 	return nil
@@ -401,9 +514,7 @@ func (corer *Core) processABABack(back *ABABack) error {
 
 func (corer *Core) receivePatternCallback(back *ABABack) error {
 	logger.Debug.Printf("Processing ababack round %d Slot %d in-round %d flag %d\n", back.ExRound, back.Slot, back.InRound, back.Flag)
-	corer.localDAG.muDAG.RLock()
-	digest := corer.localDAG.localDAG[back.ExRound][back.Slot][0]
-	corer.localDAG.muDAG.RUnlock()
+
 	if back.Flag == FLAG_NO { //toskip
 		corer.commitor.notifycommit <- &commitMsg{
 			round:  back.ExRound,
@@ -412,6 +523,9 @@ func (corer *Core) receivePatternCallback(back *ABABack) error {
 			digest: crypto.Digest{},
 		}
 	} else if back.Flag == FLAG_YES { //tocommit
+		corer.localDAG.muDAG.RLock()
+		digest := corer.localDAG.localDAG[back.ExRound][back.Slot][0]
+		corer.localDAG.muDAG.RUnlock()
 		corer.commitor.notifycommit <- &commitMsg{
 			round:  back.ExRound,
 			node:   back.Slot,
@@ -422,7 +536,7 @@ func (corer *Core) receivePatternCallback(back *ABABack) error {
 	return nil
 }
 
-func (corer *Core) handleOutPut(round int, node NodeID, digest crypto.Digest, references map[crypto.Digest]NodeID) error {
+func (corer *Core) handleOutPut(round int, node core.NodeID, digest crypto.Digest, references map[crypto.Digest]core.NodeID) error {
 	logger.Debug.Printf("procesing output round %d node %d \n", round, node)
 
 	//receive block
@@ -455,9 +569,10 @@ func (corer *Core) advancedround(round int) error {
 			return err
 		} else {
 			// time.AfterFunc(time.Duration(corer.parameters.NetwrokDelay)*time.Millisecond, func() {
-			// 	corer.transmitor.Send(corer.nodeID, NONE, propose)
+			// 	corer.transmitor.Send(corer.nodeID, core.NONE, propose)
+			// 	corer.transmitor.RecvChannel() <- propose
 			// })
-			corer.transmitor.Send(corer.nodeID, NONE, propose)
+			corer.transmitor.Send(corer.nodeID, core.NONE, propose)
 			corer.transmitor.RecvChannel() <- propose
 		}
 	}
@@ -466,14 +581,17 @@ func (corer *Core) advancedround(round int) error {
 }
 
 func (corer *Core) Run() {
-	if corer.nodeID >= NodeID(corer.parameters.Faults) {
+	if corer.nodeID >= core.NodeID(corer.parameters.Faults) {
+		//启动mempool
+		go corer.MemPool.Run()
 		//first propose
+
 		block := corer.generatorBlock(0)
 		if propose, err := NewProposeMsg(corer.nodeID, 0, block, corer.sigService); err != nil {
 			logger.Error.Println(err)
 			panic(err)
 		} else {
-			corer.transmitor.Send(corer.nodeID, NONE, propose)
+			corer.transmitor.Send(corer.nodeID, core.NONE, propose)
 			corer.transmitor.RecvChannel() <- propose
 		}
 
@@ -498,12 +616,38 @@ func (corer *Core) Run() {
 						err = corer.handleABAHalt(msg.(*ABAHalt))
 					case CoinShareType:
 						err = corer.handleCoinShare(msg.(*CoinShare))
+
+					case SPBProposalType:
+						err = corer.handleSpbProposal(msg.(*SPBProposal))
+					case SPBVoteType:
+						err = corer.handleSpbVote(msg.(*SPBVote))
+					case FinishType:
+						err = corer.handleFinish(msg.(*Finish))
+					case DoneType:
+						err = corer.handleDone(msg.(*Done))
+					case ElectShareType:
+						err = corer.handleElectShare(msg.(*ElectShare))
+					case PrevoteType:
+						err = corer.handlePrevote(msg.(*Prevote))
+					case FinVoteType:
+						err = corer.handleFinvote(msg.(*FinVote))
+					case HaltType:
+						err = corer.handleHalt(msg.(*Halt))
 					}
 
+				}
+			case round := <-corer.delayRoundCh:
+				{
+					err = corer.advancedround(round)
 				}
 			case block := <-corer.loopBackChannel:
 				{
 					err = corer.handleLoopBack(block)
+				}
+			case mblock := <-corer.mempoolbackchannel:
+				{
+					logger.Debug.Printf("mempoolbackchannel receive \n")
+					err = corer.handleMLoopBack(mblock)
 				}
 			case abaBack := <-corer.abaCallBack:
 				{
@@ -513,8 +657,11 @@ func (corer *Core) Run() {
 				{
 					err = corer.processABAId(abaid)
 				}
-			case round := <-corer.delayRoundCh:
-				err = corer.advancedround(round)
+			case sMVBAid := <-corer.sMVBAStart:
+				{
+					err = corer.handlesMVBAStart(sMVBAid)
+				}
+
 			}
 
 			if err != nil {

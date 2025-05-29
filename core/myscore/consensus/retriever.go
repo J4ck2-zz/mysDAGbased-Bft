@@ -1,6 +1,7 @@
-package core
+package consensus
 
 import (
+	"WuKong/core"
 	"WuKong/crypto"
 	"WuKong/logger"
 	"WuKong/store"
@@ -17,13 +18,13 @@ type reqRetrieve struct {
 	reqID     int
 	digest    []crypto.Digest
 	localMiss []crypto.Digest
-	nodeID    NodeID
+	nodeID    core.NodeID
 	backBlock crypto.Digest
 }
 
 type Retriever struct {
-	nodeID           NodeID
-	transmitor       *Transmitor
+	nodeID           core.NodeID
+	transmitor       *core.Transmitor
 	cnt              int
 	pendding         map[crypto.Digest]struct{} //dealing request
 	requests         map[int]*RequestBlockMsg   //Request
@@ -36,17 +37,17 @@ type Retriever struct {
 	loopDigests      chan crypto.Digest
 	sigService       *crypto.SigService
 	store            *store.Store
-	parameters       Parameters
+	parameters       core.Parameters
 	loopBackChannel  chan<- *Block
 	localDAG         *LocalDAG
 }
 
 func NewRetriever(
-	nodeID NodeID,
+	nodeID core.NodeID,
 	store *store.Store,
-	transmitor *Transmitor,
+	transmitor *core.Transmitor,
 	sigService *crypto.SigService,
-	parameters Parameters,
+	parameters core.Parameters,
 	loopBackChannel chan<- *Block,
 	loopDigests chan crypto.Digest,
 	localDAG *LocalDAG,
@@ -76,7 +77,6 @@ func NewRetriever(
 	return r
 }
 
-
 func (r *Retriever) run() {
 	ticker := time.NewTicker(time.Duration(r.parameters.RetryDelay))
 	for {
@@ -94,7 +94,7 @@ func (r *Retriever) run() {
 						go r.loopBack(req.backBlock)
 						logger.Debug.Printf("one bug find \n")
 						continue
-					}	
+					}
 					r.loopBackBlocks[r.cnt] = req.backBlock
 					r.loopBackCnts[r.cnt] = len(remoteMiss)
 					r.loopBackLocalCnt[r.cnt] = len(localMiss)
@@ -131,7 +131,9 @@ func (r *Retriever) run() {
 								if r.loopBackCnts[id] == 0 && r.loopBackLocalCnt[id] == 0 {
 									go r.loopBack(r.loopBackBlocks[id])
 								}
+
 							}
+							//delete(r.miss2Blocks, d)
 							delete(r.pendding, d) // delete
 						}
 						delete(r.requests, _req.ReqID) //delete request that finished
@@ -146,6 +148,7 @@ func (r *Retriever) run() {
 						go r.loopBack(r.loopBackBlocks[id])
 					}
 				}
+				delete(r.miss2LocalBlocks, d)
 				delete(r.pendding, d) // delete
 			}
 		case <-ticker.C: // recycle request
@@ -156,7 +159,7 @@ func (r *Retriever) run() {
 						request, _ := NewRequestBlock(req.Author, req.MissBlock, req.ReqID, now, r.sigService)
 						r.requests[req.ReqID] = request
 						//BroadCast to all node
-						r.transmitor.Send(r.nodeID, NONE, request)
+						r.transmitor.Send(r.nodeID, core.NONE, request)
 					}
 				}
 			}
@@ -164,7 +167,7 @@ func (r *Retriever) run() {
 	}
 }
 
-func (r *Retriever) requestBlocks(digest []crypto.Digest, localmiss []crypto.Digest, nodeid NodeID, backBlock crypto.Digest) {
+func (r *Retriever) requestBlocks(digest []crypto.Digest, localmiss []crypto.Digest, nodeid core.NodeID, backBlock crypto.Digest) {
 	req := &reqRetrieve{
 		typ:       ReqType,
 		digest:    digest,

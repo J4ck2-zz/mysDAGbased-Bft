@@ -3,25 +3,27 @@ package core
 import "WuKong/crypto"
 
 type Parameters struct {
-	SyncTimeout   int  `json:"sync_timeout"`
-	NetwrokDelay  int  `json:"network_delay"`
-	MinBlockDelay int  `json:"min_block_delay"`
-	DDos          bool `json:"ddos"`
-	Faults        int  `json:"faults"`
-	RetryDelay    int  `json:"retry_delay"`
-	DelayProposal int  `json:"deley_proposal"`
-	JudgeDelay    int  `json:"judge_delay"`
+	SyncTimeout         int    `json:"sync_timeout"`
+	NetwrokDelay        int    `json:"network_delay"`
+	MinBlockDelay       int    `json:"min_block_delay"`
+	DDos                bool   `json:"ddos"`
+	Faults              int    `json:"faults"`
+	RetryDelay          int    `json:"retry_delay"`
+	DelayProposal       int    `json:"deley_proposal"`
+	JudgeDelay          int    `json:"judge_delay"`
+	MaxMempoolQueenSize uint64 `json:"maxmempoolqueensize"`
 }
 
 var DefaultParameters = Parameters{
-	SyncTimeout:   500,
-	NetwrokDelay:  2_000,
-	MinBlockDelay: 0,
-	DDos:          false,
-	Faults:        0,
-	RetryDelay:    5_000,
-	DelayProposal: 1_000,
-	JudgeDelay:    100,
+	SyncTimeout:         500,
+	NetwrokDelay:        2_000,
+	MinBlockDelay:       0,
+	DDos:                false,
+	Faults:              0,
+	RetryDelay:          5_000,
+	DelayProposal:       1_000,
+	JudgeDelay:          100,
+	MaxMempoolQueenSize: 1_000,
 }
 
 type NodeID int

@@ -8,6 +8,7 @@ import (
 
 type Messgae interface {
 	MsgType() int
+	Module() string
 }
 
 type Codec struct {
@@ -16,9 +17,16 @@ type Codec struct {
 	decoder *gob.Decoder
 }
 
-func NewCodec(types map[int]reflect.Type) *Codec {
+func NewCodec(Consensustypes map[int]reflect.Type, Mempooltypes map[int]reflect.Type) *Codec {
+	var DefaultMessageTypeMap = make(map[int]reflect.Type)
+	for k, v := range Consensustypes {
+		DefaultMessageTypeMap[k] = v
+	}
+	for k, v := range Mempooltypes {
+		DefaultMessageTypeMap[k] = v
+	}
 	return &Codec{
-		types: types,
+		types: DefaultMessageTypeMap,
 	}
 }
 

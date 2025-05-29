@@ -1,7 +1,8 @@
-package core
+package consensus
 
 import (
 	"WuKong/logger"
+	"WuKong/core"
 	"sync"
 	"sync/atomic"
 )
@@ -14,7 +15,7 @@ const (
 type ABABack struct {
 	Typ     int
 	ExRound int
-	Slot    NodeID
+	Slot    core.NodeID
 	InRound int
 	Flag    uint8
 }
@@ -22,9 +23,9 @@ type ABABack struct {
 type ABA struct {
 	c           *Core
 	ExRound     int
-	Slot        NodeID
-	yesUsed     map[int]map[NodeID]struct{}
-	noUsed      map[int]map[NodeID]struct{}
+	Slot        core.NodeID
+	yesUsed     map[int]map[core.NodeID]struct{}
+	noUsed      map[int]map[core.NodeID]struct{}
 	initMutex   sync.RWMutex
 	initYesCnt  int
 	initNoCnt   int
@@ -43,13 +44,13 @@ type ABA struct {
 	abaCallBack chan *ABABack
 }
 
-func NewABA(c *Core, ExRound int, Slot NodeID, abaCallBack chan *ABABack) *ABA {
+func NewABA(c *Core, ExRound int, Slot core.NodeID, abaCallBack chan *ABABack) *ABA {
 	return &ABA{
 		c:           c,
 		ExRound:     ExRound,
 		Slot:        Slot,
-		yesUsed:     make(map[int]map[NodeID]struct{}),
-		noUsed:      make(map[int]map[NodeID]struct{}),
+		yesUsed:     make(map[int]map[core.NodeID]struct{}),
+		noUsed:      make(map[int]map[core.NodeID]struct{}),
 		initYesCnt:  0,
 		initNoCnt:   0,
 		valYesCnt:   map[int]int{},
@@ -64,7 +65,7 @@ func NewABA(c *Core, ExRound int, Slot NodeID, abaCallBack chan *ABABack) *ABA {
 	}
 }
 
-func (aba *ABA) isUsed(val *ABAVal, used map[int]map[NodeID]struct{}) bool {
+func (aba *ABA) isUsed(val *ABAVal, used map[int]map[core.NodeID]struct{}) bool {
 	item, ok := used[val.InRound]
 	if !ok {
 		return false
@@ -89,7 +90,7 @@ func (aba *ABA) ProcessABAVal(val *ABAVal) {
 			if yescnt == aba.c.committee.Size() {
 				logger.Debug.Printf("fastpath aba round %d Slot %d flag %d\n", val.Round, val.Slot, FLAG_YES)
 				halt, _ := NewABAHalt(aba.c.nodeID, aba.ExRound, aba.Slot, val.InRound, FLAG_YES, aba.c.sigService)
-				aba.c.transmitor.Send(aba.c.nodeID, NONE, halt)
+				aba.c.transmitor.Send(aba.c.nodeID, core.NONE, halt)
 				aba.c.transmitor.RecvChannel() <- halt
 				return
 			}
@@ -102,7 +103,7 @@ func (aba *ABA) ProcessABAVal(val *ABAVal) {
 			if nocnt == aba.c.committee.Size() {
 				logger.Debug.Printf("fastpath aba round %d Slot %d flag %d\n", val.Round, val.Slot, FLAG_NO)
 				halt, _ := NewABAHalt(aba.c.nodeID, aba.ExRound, aba.Slot, val.InRound, FLAG_NO, aba.c.sigService)
-				aba.c.transmitor.Send(aba.c.nodeID, NONE, halt)
+				aba.c.transmitor.Send(aba.c.nodeID, core.NONE, halt)
 				aba.c.transmitor.RecvChannel() <- halt
 				return
 			}
@@ -115,7 +116,7 @@ func (aba *ABA) ProcessABAVal(val *ABAVal) {
 			cnt = aba.valNoCnt[val.InRound]
 			flags, ok := aba.noUsed[val.InRound]
 			if !ok {
-				flags = make(map[NodeID]struct{})
+				flags = make(map[core.NodeID]struct{})
 				aba.noUsed[val.InRound] = flags
 			}
 			_, ok = flags[val.Slot]
@@ -129,7 +130,7 @@ func (aba *ABA) ProcessABAVal(val *ABAVal) {
 			cnt = aba.valYesCnt[val.InRound]
 			flags, ok := aba.yesUsed[val.InRound]
 			if !ok {
-				flags = make(map[NodeID]struct{})
+				flags = make(map[core.NodeID]struct{})
 				aba.yesUsed[val.InRound] = flags
 			}
 			_, ok = flags[val.Slot]
@@ -154,7 +155,7 @@ func (aba *ABA) ProcessABAVal(val *ABAVal) {
 		if _, ok := aba.muxFlag[val.InRound]; !ok {
 			aba.muxFlag[val.InRound] = struct{}{}
 			mux, _ := NewABAMux(aba.c.nodeID, val.Round, val.Slot, val.InRound, val.Flag, aba.c.sigService)
-			aba.c.transmitor.Send(aba.c.nodeID, NONE, mux)
+			aba.c.transmitor.Send(aba.c.nodeID, core.NONE, mux)
 			aba.c.transmitor.RecvChannel() <- mux
 		}
 	}
@@ -221,7 +222,7 @@ func (aba *ABA) ProcessABAMux(mux *ABAMux) {
 
 	if flag { //only once call
 		coinShare, _ := NewCoinShare(aba.c.nodeID, mux.Round, mux.Slot, mux.InRound, aba.c.sigService)
-		aba.c.transmitor.Send(aba.c.nodeID, NONE, coinShare)
+		aba.c.transmitor.Send(aba.c.nodeID, core.NONE, coinShare)
 		aba.c.transmitor.RecvChannel() <- coinShare
 	}
 
@@ -235,11 +236,11 @@ func (aba *ABA) ProcessCoin(inRound int, coin uint8) {
 
 	if (okYes && okNo) || (!okYes && !okNo) { //next round with coin
 		abaVal, _ := NewABAVal(aba.c.nodeID, aba.ExRound, aba.Slot, inRound+1, coin, aba.c.sigService, FLAG_NO)
-		aba.c.transmitor.Send(aba.c.nodeID, NONE, abaVal)
+		aba.c.transmitor.Send(aba.c.nodeID, core.NONE, abaVal)
 		aba.c.transmitor.RecvChannel() <- abaVal
 	} else if (okYes && coin == FLAG_YES) || (okNo && coin == FLAG_NO) {
 		halt, _ := NewABAHalt(aba.c.nodeID, aba.ExRound, aba.Slot, inRound, coin, aba.c.sigService)
-		aba.c.transmitor.Send(aba.c.nodeID, NONE, halt)
+		aba.c.transmitor.Send(aba.c.nodeID, core.NONE, halt)
 		aba.c.transmitor.RecvChannel() <- halt
 	} else { // next round with self
 		var abaVal *ABAVal
@@ -248,7 +249,7 @@ func (aba *ABA) ProcessCoin(inRound int, coin uint8) {
 		} else if okNo {
 			abaVal, _ = NewABAVal(aba.c.nodeID, aba.ExRound, aba.Slot, inRound+1, FLAG_NO, aba.c.sigService, FLAG_NO)
 		}
-		aba.c.transmitor.Send(aba.c.nodeID, NONE, abaVal)
+		aba.c.transmitor.Send(aba.c.nodeID, core.NONE, abaVal)
 		aba.c.transmitor.RecvChannel() <- abaVal
 	}
 }
@@ -261,7 +262,7 @@ func (aba *ABA) ProcessHalt(halt *ABAHalt) {
 	}
 	aba.halt.Store(true)
 	temp, _ := NewABAHalt(aba.c.nodeID, aba.ExRound, aba.Slot, halt.InRound, halt.Flag, aba.c.sigService)
-	aba.c.transmitor.Send(aba.c.nodeID, NONE, temp)
+	aba.c.transmitor.Send(aba.c.nodeID, core.NONE, temp)
 	aba.c.transmitor.RecvChannel() <- temp
 
 	aba.abaCallBack <- &ABABack{

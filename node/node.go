@@ -3,6 +3,7 @@ package node
 import (
 	"WuKong/config"
 	"WuKong/core"
+	"WuKong/core/myscore/consensus"
 	"WuKong/crypto"
 	"WuKong/logger"
 	"WuKong/pool"
@@ -11,7 +12,7 @@ import (
 )
 
 type Node struct {
-	commitChannel chan *core.Block
+	commitChannel chan *consensus.Block
 }
 
 func NewNode(
@@ -19,7 +20,7 @@ func NewNode(
 	logLevel, nodeID int,
 ) (*Node, error) {
 
-	commitChannel := make(chan *core.Block, 1_000)
+	commitChannel := make(chan *consensus.Block, 1_000)
 	//step 1: init log config
 	logger.SetOutput(logger.InfoLevel, logger.NewFileWriter(fmt.Sprintf("%s/node-info-%d.log", logPath, nodeID)))
 	logger.SetOutput(logger.DebugLevel, logger.NewFileWriter(fmt.Sprintf("%s/node-debug-%d.log", logPath, nodeID)))
@@ -60,7 +61,7 @@ func NewNode(
 	_store := store.NewStore(store.NewDefaultNutsDB(storePath))
 	sigService := crypto.NewSigService(priKey, shareKey)
 
-	if err = core.Consensus(
+	if err = consensus.Consensus(
 		core.NodeID(nodeID),
 		commitee,
 		coreParameters,

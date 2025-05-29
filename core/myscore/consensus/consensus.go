@@ -1,8 +1,10 @@
-package core
+package consensus
 
 import (
+	"WuKong/core"
 	"WuKong/crypto"
 	"WuKong/logger"
+	"WuKong/mempool"
 	"WuKong/network"
 	"WuKong/pool"
 	"WuKong/store"
@@ -14,9 +16,9 @@ import (
 )
 
 func Consensus(
-	id NodeID,
-	committee Committee,
-	parameters Parameters,
+	id core.NodeID,
+	committee core.Committee,
+	parameters core.Parameters,
 	txpool *pool.Pool,
 	store *store.Store,
 	sigService *crypto.SigService,
@@ -34,19 +36,19 @@ func Consensus(
 		"Consensus DDos: %v, Faults: %v \n",
 		parameters.DDos, parameters.Faults,
 	)
-	if id < NodeID(parameters.Faults) {
+	if id < core.NodeID(parameters.Faults) {
 		logger.Info.Println("Byzantine Node")
 	} else {
 		logger.Info.Println("Honest Node")
 	}
 
 	//Step 1: invoke network
-	cc := network.NewCodec(DefaultMsgTypes)
+	cc := network.NewCodec(DefaultMsgTypes,mempool.DefaultMessageTypeMap)
 	addr := fmt.Sprintf(":%s", strings.Split(committee.Address(id), ":")[1])
 	sender, receiver := network.NewSender(cc), network.NewReceiver(addr, cc)
 	go sender.Run()
 	go receiver.Run()
-	transmitor := NewTransmitor(sender, receiver, parameters, committee)
+	transmitor := core.NewTransmitor(sender, receiver, parameters, committee)
 
 	//Step 2: Waiting for all nodes to be online
 	logger.Info.Println("Waiting for all nodes to be online...")
