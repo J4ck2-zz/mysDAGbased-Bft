@@ -28,10 +28,11 @@ class LogParser:
                 results = p.map(self._parse_nodes, nodes)
         except (ValueError, IndexError) as e:
             raise ParseError(f'Failed to parse node logs: {e}')
-        batchs,proposals, commits,configs = zip(*results)
+        batchs,proposals, commits,commitbatch, configs = zip(*results)
         self.proposals = self._merge_results([x.items() for x in proposals])
         self.commits = self._merge_results([x.items() for x in commits])
         self.batchs = self._merge_results([x.items() for x in batchs])
+        self.commitbatch =self._merge_results([x.items() for x in commitbatch])
         self.configs = configs[0]
 
     def _merge_results(self, input):
@@ -50,11 +51,14 @@ class LogParser:
         tmp = findall(r'\[INFO] (.*) pool.* Received Batch (\d+)', log)
         batchs = { id:self._to_posix(t) for t,id in tmp}
         
-        tmp = findall(r'\[INFO] (.*) core.* create Block round \d+ node \d+ batch_id (\d+)', log)
+        tmp = findall(r'\[INFO] (.*) core.* create Block (round \d+ node \d+)', log)
         proposals = { id:self._to_posix(t) for t,id in tmp }
 
+        tmp = findall(r'\[INFO] (.*) commitor.* commit batch (\d+)', log)
+        commitbatch= [(d, self._to_posix(t)) for t, d in tmp]
+        commitbatch = self._merge_results([commitbatch])
 
-        tmp = findall(r'\[INFO] (.*) commitor.* commit Block round \d+ node \d+ batch_id (\d+)', log)
+        tmp = findall(r'\[INFO] (.*) commitor.* commit Block (round \d+ node \d+)', log)
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
         commits = self._merge_results([tmp])
 
@@ -77,7 +81,7 @@ class LogParser:
             }
         }
 
-        return batchs,proposals, commits,configs
+        return batchs,proposals, commits,commitbatch,configs
 
     def _to_posix(self, string):
         # 解析时间字符串为 datetime 对象
@@ -99,16 +103,16 @@ class LogParser:
         return mean(latency) if latency else 0
 
     def _end_to_end_throughput(self):
-        if not self.commits:
+        if not self.commitbatch:
             return 0, 0, 0
-        start, end = min(self.batchs.values()), max(self.commits.values())
+        start, end = min(self.batchs.values()), max(self.commitbatch.values())
         duration = end - start
-        tps = len(self.commits)*self.configs['pool']['batch_size'] / duration
+        tps = len(self.commitbatch)*self.configs['pool']['batch_size'] / duration
         return tps, duration
 
     def _end_to_end_latency(self):
         latency = []
-        for id,t in self.commits.items():
+        for id,t in self.commitbatch.items():
             if id in self.batchs:
                 latency += [t-self.batchs[id]]
         return mean(latency) if latency else 0

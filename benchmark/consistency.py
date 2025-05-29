@@ -5,7 +5,7 @@ def extract_block_info(log_file):
     """
     提取日志中所有形如 'commit Block round X node Y batch_id Z' 的三元组 (round, node, batch_id)
     """
-    pattern = re.compile(r'commit Block round (\d+) node (\d+) batch_id (\d+)')
+    pattern = re.compile(r'commit batch (\d+)')
     block_info = []
     with open(log_file, 'r', encoding='utf-8') as f:
         for line in f:
@@ -50,7 +50,7 @@ def compare_block_sequences(log_files):
     return consistent
 
 if __name__ == '__main__':
-    log_dir = 'logs/2025-05-20-20-25-53'
+    log_dir = 'logs/2025-05-29-16-28-42'
     log_files = [
         os.path.join(log_dir, 'node-info-0.log'),
         os.path.join(log_dir, 'node-info-1.log'),

@@ -14,7 +14,7 @@ def local(ctx):
     bench_params = {
         'nodes': 4,
         'duration': 30,
-        'rate': 5000,                  # tx send rate
+        'rate': 10_000,                  # tx send rate
         'batch_size': 200,              # the max number of tx that can be hold 
         'log_level': 0b1111,            # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
         'protocol_name': "WuKong"
@@ -28,13 +28,14 @@ def local(ctx):
 	    },
         "consensus": {
             "sync_timeout": 500,        # node sync time
-            "network_delay": 200,        # network delay
+            "network_delay": 100,        # network delay
             "min_block_delay": 0,       # send block delay
             "ddos": False,              # DDOS attack
             "faults": 0,                # the number of byzantine node
             "retry_delay": 5_000,        # request block period
             "deley_proposal": 50,
-            "judge_delay":10
+            "judge_delay":10,
+            "maxmempoolqueensize":10_000
         }
     }
     try:
@@ -111,8 +112,8 @@ def remote(ctx):
     bench_params = {
         'nodes': [10],
         'node_instance': 1,                                             # the number of running instance for a node  (max = 4)
-        'duration': 30,
-        'rate': 8_000,                                                  # tx send rate
+        'duration': 10,
+        'rate': 5_000,                                                  # tx send rate
         'batch_size': [5_00,1_000,2_000,2_500,3_300,4_000,5_000],                              # the max number of tx that can be hold 
         'log_level': 0b1111,                                            # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
         'protocol_name': "WuKong",
