@@ -16,7 +16,7 @@ type Parameters struct {
 
 var DefaultParameters = Parameters{
 	SyncTimeout:         500,
-	NetwrokDelay:        2_000,
+	NetwrokDelay:        2_00,
 	MinBlockDelay:       0,
 	DDos:                false,
 	Faults:              0,

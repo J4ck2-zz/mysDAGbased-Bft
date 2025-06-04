@@ -51,7 +51,7 @@ func (s *SPB) processProposal(p *SPBProposal) {
 			if s.c.nodeID != s.Proposer {
 				s.c.transmitor.Send(s.c.nodeID, s.Proposer, vote)
 			} else {
-				s.c.transmitor.RecvChannel() <- vote
+				s.c.transmitor.SMVBARecvChannel() <- vote
 			}
 		}
 
@@ -81,7 +81,7 @@ func (s *SPB) processProposal(p *SPBProposal) {
 			if s.c.nodeID != s.Proposer {
 				s.c.transmitor.Send(s.c.nodeID, s.Proposer, vote)
 			} else {
-				s.c.transmitor.RecvChannel() <- vote
+				s.c.transmitor.SMVBARecvChannel() <- vote
 			}
 		}
 	}
@@ -112,7 +112,7 @@ func (s *SPB) processVote(p *SPBVote) {
 				logger.Error.Printf("create spb proposal message error:%v \n", err)
 			} else {
 				s.c.transmitor.Send(s.c.nodeID, core.NONE, proposal)
-				s.c.transmitor.RecvChannel() <- proposal
+				s.c.transmitor.SMVBARecvChannel() <- proposal
 			}
 		} else if p.Phase == SPB_TWO_PHASE {
 			blockHash := s.BlockHash.Load().(crypto.Digest)
@@ -120,7 +120,7 @@ func (s *SPB) processVote(p *SPBVote) {
 				logger.Error.Printf("create finish message error:%v \n", err)
 			} else {
 				s.c.transmitor.Send(s.c.nodeID, core.NONE, finish)
-				s.c.transmitor.RecvChannel() <- finish
+				s.c.transmitor.SMVBARecvChannel() <- finish
 			}
 		}
 	}

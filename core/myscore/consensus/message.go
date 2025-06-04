@@ -9,7 +9,7 @@ import (
 	"strconv"
 )
 
-const MAXCOUNT int64 = 10
+const MAXCOUNT int64 = 15
 
 const (
 	FLAG_YES uint8 = 0
@@ -542,7 +542,7 @@ func (*SPBProposal) MsgType() int {
 }
 
 func (*SPBProposal) Module() string {
-	return "consensus"
+	return "sMVBA"
 }
 
 type SPBVote struct {
@@ -594,7 +594,7 @@ func (*SPBVote) MsgType() int {
 }
 
 func (*SPBVote) Module() string {
-	return "consensus"
+	return "sMVBA"
 }
 
 type Finish struct {
@@ -639,7 +639,7 @@ func (*Finish) MsgType() int {
 }
 
 func (*Finish) Module() string {
-	return "consensus"
+	return "sMVBA"
 }
 
 type Done struct {
@@ -681,7 +681,7 @@ func (*Done) MsgType() int {
 }
 
 func (*Done) Module() string {
-	return "consensus"
+	return "sMVBA"
 }
 
 type ElectShare struct {
@@ -722,7 +722,7 @@ func (*ElectShare) MsgType() int {
 }
 
 func (*ElectShare) Module() string {
-	return "consensus"
+	return "sMVBA"
 }
 
 type Prevote struct {
@@ -773,7 +773,7 @@ func (*Prevote) MsgType() int {
 }
 
 func (*Prevote) Module() string {
-	return "consensus"
+	return "sMVBA"
 }
 
 type FinVote struct {
@@ -823,7 +823,7 @@ func (*FinVote) MsgType() int {
 }
 
 func (*FinVote) Module() string {
-	return "consensus"
+	return "sMVBA"
 }
 
 type Halt struct {
@@ -870,7 +870,7 @@ func (*Halt) MsgType() int {
 }
 
 func (*Halt) Module() string {
-	return "consensus"
+	return "sMVBA"
 }
 
 const (

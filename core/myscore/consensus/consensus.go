@@ -46,6 +46,7 @@ func Consensus(
 	cc := network.NewCodec(DefaultMsgTypes,mempool.DefaultMessageTypeMap)
 	addr := fmt.Sprintf(":%s", strings.Split(committee.Address(id), ":")[1])
 	sender, receiver := network.NewSender(cc), network.NewReceiver(addr, cc)
+	//
 	go sender.Run()
 	go receiver.Run()
 	transmitor := core.NewTransmitor(sender, receiver, parameters, committee)

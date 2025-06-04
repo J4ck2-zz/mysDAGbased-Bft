@@ -1,6 +1,7 @@
 package core
 
 import (
+	"WuKong/logger"
 	"WuKong/network"
 )
 
@@ -15,6 +16,7 @@ type Transmitor struct {
 	receiver   *network.Receiver
 	mempoolCh  chan Message //mempool内部通道
 	connectCh  chan Message //mempool和consensus通信通道
+	smvbaCh    chan Message //smvba 消息通道
 	recvCh     chan Message //consensus通信通道
 	msgCh      chan *network.NetMessage
 	parameters Parameters
@@ -31,10 +33,11 @@ func NewTransmitor(
 	tr := &Transmitor{
 		sender:     sender,
 		receiver:   receiver,
-		mempoolCh:  make(chan Message, 100_000),
-		connectCh:  make(chan Message, 100_000),
-		recvCh:     make(chan Message, 100_000),
-		msgCh:      make(chan *network.NetMessage, 100_000),
+		mempoolCh:  make(chan Message, 1_000),
+		connectCh:  make(chan Message, 1_000),
+		smvbaCh:    make(chan Message, 1_000),
+		recvCh:     make(chan Message, 1_000),
+		msgCh:      make(chan *network.NetMessage, 1_000),
 		parameters: parameters,
 		committee:  committee,
 	}
@@ -52,6 +55,10 @@ func NewTransmitor(
 				tr.mempoolCh <- msg
 			case "consensus":
 				tr.recvCh <- msg
+			//logger.Warn.Printf(" recvCh 长度：%d", len(tr.smvbaCh))
+			case "sMVBA":
+				tr.smvbaCh <- msg
+				logger.Warn.Printf(" smvbaCh 长度：%d", len(tr.smvbaCh))
 			}
 		}
 	}()
@@ -96,6 +103,10 @@ func (tr *Transmitor) Recv() Message {
 
 func (tr *Transmitor) RecvChannel() chan Message {
 	return tr.recvCh
+}
+
+func (tr *Transmitor) SMVBARecvChannel() chan Message {
+	return tr.smvbaCh
 }
 
 func (tr *Transmitor) MempololRecvChannel() chan Message { //mempool部分的消息通道

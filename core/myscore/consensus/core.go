@@ -52,6 +52,7 @@ type Core struct {
 	HaltFlags    map[int64]struct{}
 	Epoch        int64
 	sMVBAStart   chan *SMVBAid
+	sMVBAValue   map[crypto.Digest]*SmvbaValue
 }
 
 func NewCore(
@@ -110,6 +111,7 @@ func NewCore(
 		ReadyFlags:   make(map[int64]map[int64]struct{}),
 		HaltFlags:    make(map[int64]struct{}),
 		sMVBAStart:   sMVBAStart,
+		sMVBAValue:   make(map[crypto.Digest]*SmvbaValue),
 	}
 
 	corer.retriever = NewRetriever(nodeID, store, transmitor, sigService, parameters, loopBackChannel, loopDigest, corer.localDAG)
@@ -580,12 +582,57 @@ func (corer *Core) advancedround(round int) error {
 	return nil
 }
 
+func (corer *Core) sMVBARun() {
+	for {
+		msg := <-corer.transmitor.SMVBARecvChannel()
+		var err error
+		switch msg.MsgType() {
+		case SPBProposalType:
+			start := time.Now()
+			err = corer.handleSpbProposal(msg.(*SPBProposal))
+			logger.Error.Printf("handleSpbProposal took %v", time.Since(start))
+		case SPBVoteType:
+			start := time.Now()
+			err = corer.handleSpbVote(msg.(*SPBVote))
+			logger.Error.Printf("handleSpbvote took %v", time.Since(start))
+		case FinishType:
+			start := time.Now()
+			err = corer.handleFinish(msg.(*Finish))
+			logger.Error.Printf("handleFinish took %v", time.Since(start))
+		case DoneType:
+			start := time.Now()
+			err = corer.handleDone(msg.(*Done))
+			logger.Error.Printf("handleDone took %v", time.Since(start))
+		case ElectShareType:
+			start := time.Now()
+			err = corer.handleElectShare(msg.(*ElectShare))
+			logger.Error.Printf("handleElectshare took %v", time.Since(start))
+		case PrevoteType:
+			start := time.Now()
+			err = corer.handlePrevote(msg.(*Prevote))
+			logger.Error.Printf("handlePrevote took %v", time.Since(start))
+		case FinVoteType:
+			start := time.Now()
+			err = corer.handleFinvote(msg.(*FinVote))
+			logger.Error.Printf("handleFinvote took %v", time.Since(start))
+		case HaltType:
+			start := time.Now()
+			err = corer.handleHalt(msg.(*Halt))
+			logger.Error.Printf("handleHalt took %v", time.Since(start))
+		}
+		if err != nil {
+			logger.Warn.Println(err)
+		}
+	}
+
+}
+
 func (corer *Core) Run() {
 	if corer.nodeID >= core.NodeID(corer.parameters.Faults) {
 		//启动mempool
 		go corer.MemPool.Run()
 		//first propose
-
+		go corer.sMVBARun()
 		block := corer.generatorBlock(0)
 		if propose, err := NewProposeMsg(corer.nodeID, 0, block, corer.sigService); err != nil {
 			logger.Error.Println(err)
@@ -617,22 +664,38 @@ func (corer *Core) Run() {
 					case CoinShareType:
 						err = corer.handleCoinShare(msg.(*CoinShare))
 
-					case SPBProposalType:
-						err = corer.handleSpbProposal(msg.(*SPBProposal))
-					case SPBVoteType:
-						err = corer.handleSpbVote(msg.(*SPBVote))
-					case FinishType:
-						err = corer.handleFinish(msg.(*Finish))
-					case DoneType:
-						err = corer.handleDone(msg.(*Done))
-					case ElectShareType:
-						err = corer.handleElectShare(msg.(*ElectShare))
-					case PrevoteType:
-						err = corer.handlePrevote(msg.(*Prevote))
-					case FinVoteType:
-						err = corer.handleFinvote(msg.(*FinVote))
-					case HaltType:
-						err = corer.handleHalt(msg.(*Halt))
+						// case SPBProposalType:
+						// 	start := time.Now()
+						// 	err = corer.handleSpbProposal(msg.(*SPBProposal))
+						// 	logger.Error.Printf("handleSpbProposal took %v", time.Since(start))
+						// case SPBVoteType:
+						// 	start := time.Now()
+						// 	err = corer.handleSpbVote(msg.(*SPBVote))
+						// 	logger.Error.Printf("handleSpbvote took %v", time.Since(start))
+						// case FinishType:
+						// 	start := time.Now()
+						// 	err = corer.handleFinish(msg.(*Finish))
+						// 	logger.Error.Printf("handleFinish took %v", time.Since(start))
+						// case DoneType:
+						// 	start := time.Now()
+						// 	err = corer.handleDone(msg.(*Done))
+						// 	logger.Error.Printf("handleDone took %v", time.Since(start))
+						// case ElectShareType:
+						// 	start := time.Now()
+						// 	err = corer.handleElectShare(msg.(*ElectShare))
+						// 	logger.Error.Printf("handleElectshare took %v", time.Since(start))
+						// case PrevoteType:
+						// 	start := time.Now()
+						// 	err = corer.handlePrevote(msg.(*Prevote))
+						// 	logger.Error.Printf("handlePrevote took %v", time.Since(start))
+						// case FinVoteType:
+						// 	start := time.Now()
+						// 	err = corer.handleFinvote(msg.(*FinVote))
+						// 	logger.Error.Printf("handleFinvote took %v", time.Since(start))
+						// case HaltType:
+						// 	start := time.Now()
+						// 	err = corer.handleHalt(msg.(*Halt))
+						// 	logger.Error.Printf("handleHalt took %v", time.Since(start))
 					}
 
 				}

@@ -50,7 +50,7 @@ def compare_block_sequences(log_files):
     return consistent
 
 if __name__ == '__main__':
-    log_dir = 'logs/2025-05-29-16-28-42'
+    log_dir = 'logs/2025-06-04-21-12-32'
     log_files = [
         os.path.join(log_dir, 'node-info-0.log'),
         os.path.join(log_dir, 'node-info-1.log'),

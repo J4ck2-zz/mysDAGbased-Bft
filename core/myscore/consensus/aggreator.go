@@ -198,7 +198,7 @@ func (d *DoneAggreator) Append(committee core.Committee, done *Done) (int8, erro
 	return DONE_NONE_FLAG, nil
 }
 
-const RANDOM_LENMVBA = 3
+const RANDOM_LENSMVBA = 3
 
 type ElectAggreator struct {
 	shares  []crypto.SignatureShare
@@ -224,7 +224,7 @@ func (e *ElectAggreator) Append(committee core.Committee, sigService *crypto.Sig
 			return core.NONE, err
 		}
 		var rand int
-		for i := 0; i < RANDOM_LENMVBA; i++ {
+		for i := 0; i < RANDOM_LENSMVBA; i++ {
 			if coin[i] > 0 {
 				rand = rand<<8 + int(coin[i])
 			} else {

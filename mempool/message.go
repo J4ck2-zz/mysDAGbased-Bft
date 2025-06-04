@@ -178,19 +178,19 @@ type MempoolValidator interface {
 	Verify(core.Committee) bool
 }
 
-type LoopBackMsg struct {
+type LoopBackMempoolMsg struct {
 	BlockHash crypto.Digest
 }
 
-func (msg *LoopBackMsg) Hash() crypto.Digest {
+func (msg *LoopBackMempoolMsg) Hash() crypto.Digest {
 	return crypto.NewHasher().Sum256(msg.BlockHash[:])
 }
 
-func (msg *LoopBackMsg) MsgType() int {
-	return LoopBackType
+func (msg *LoopBackMempoolMsg) MsgType() int {
+	return LoopBackMempoolType
 }
 
-func (msg *LoopBackMsg) Module() string {
+func (msg *LoopBackMempoolMsg) Module() string {
 	return "consensus"
 }
 
@@ -203,7 +203,7 @@ const (
 	CleanBlockType
 	SyncBlockType
 	SyncCleanUpBlockType
-	LoopBackType
+	LoopBackMempoolType
 )
 
 var DefaultMessageTypeMap = map[int]reflect.Type{
@@ -215,5 +215,5 @@ var DefaultMessageTypeMap = map[int]reflect.Type{
 	CleanBlockType:       reflect.TypeOf(CleanBlockMsg{}),
 	SyncBlockType:        reflect.TypeOf(SyncBlockMsg{}),
 	SyncCleanUpBlockType: reflect.TypeOf(SyncCleanUpBlockMsg{}),
-	LoopBackType:         reflect.TypeOf(LoopBackMsg{}),
+	LoopBackMempoolType:  reflect.TypeOf(LoopBackMempoolMsg{}),
 }

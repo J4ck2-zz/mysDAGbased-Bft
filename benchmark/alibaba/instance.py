@@ -98,7 +98,7 @@ class InstanceManager:
             # step 0: 查询vpc
             describe_vpcs_request = vpc_20160428_models.DescribeVpcsRequest(
                 region_id = region,
-                vpc_name='WuKong'
+                vpc_name='lightDag'
             )
 
             resp = self.vpc_clients[region].describe_vpcs_with_options(describe_vpcs_request, self.aliyun_runtime).to_map()

@@ -4,41 +4,47 @@ import (
 	"WuKong/core"
 	"WuKong/crypto"
 	"WuKong/logger"
-	"WuKong/store"
+	"time"
 )
 
-// func (c *Core) messgaeFilter(epoch int64) bool {
-// 	return epoch < c.Epoch
-// }
-
 func (c *Core) storesMVBAValue(block *SmvbaValue) error {
+	// key := block.Hash()
+	// value, err := block.Encode()
+	// if err != nil {
+	// 	return err
+	// }
+	// return c.store.Write(key[:], value)
 	key := block.Hash()
-	value, err := block.Encode()
-	if err != nil {
-		return err
-	}
-	return c.store.Write(key[:], value)
+	c.sMVBAValue[key] = block
+	return nil
 }
 
 func (c *Core) getsMVBAValue(digest crypto.Digest) (*SmvbaValue, error) {
-	value, err := c.store.Read(digest[:])
 
-	if err == store.ErrNotFoundKey {
-		return nil, nil
+	if _, ok := c.sMVBAValue[digest]; !ok {
+		return nil, ErrLosssMVBAValue()
 	}
 
-	if err != nil {
-		return nil, err
-	}
+	return c.sMVBAValue[digest], nil
+	// value, err := c.store.Read(digest[:])
 
-	b := &SmvbaValue{}
-	if err := b.Decode(value); err != nil {
-		return nil, err
-	}
-	return b, err
+	// if err == store.ErrNotFoundKey {
+	// 	return nil, nil
+	// }
+
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	// b := &SmvbaValue{}
+	// if err := b.Decode(value); err != nil {
+	// 	return nil, err
+	// }
+	// return b, err
 }
 
 func (c *Core) handlesMVBAStart(m *SMVBAid) error {
+	logger.Debug.Printf("Processing sMVBA start epoch %d \n", m.epoch)
 
 	value := &SmvbaValue{
 		Author:     c.nodeID,
@@ -48,7 +54,7 @@ func (c *Core) handlesMVBAStart(m *SMVBAid) error {
 
 	proposal, _ := NewSPBProposal(c.nodeID, value, int64(m.epoch), 0, SPB_ONE_PHASE, c.sigService)
 	c.transmitor.Send(c.nodeID, core.NONE, proposal)
-	c.transmitor.RecvChannel() <- proposal
+	c.transmitor.SMVBARecvChannel() <- proposal
 
 	return nil
 }
@@ -113,18 +119,11 @@ func (c *Core) handleSpbProposal(p *SPBProposal) error {
 	//ensure all block is received
 	if p.Phase == SPB_ONE_PHASE {
 		if _, ok := c.HaltFlags[p.Epoch]; ok {
-			if leader := c.Elector.Leader(p.Epoch, p.Round); leader == p.Author {
-				//选出leader怎么做
-
-			}
+			return nil
 		}
 	}
 
-	//discard message
-	// if c.messgaeFilter(p.Epoch) {
-	// 	return nil
-	// }
-
+	start := time.Now()
 	//Store Block at first time
 	if p.Phase == SPB_ONE_PHASE {
 		if err := c.storesMVBAValue(p.B); err != nil {
@@ -132,6 +131,7 @@ func (c *Core) handleSpbProposal(p *SPBProposal) error {
 			return err
 		}
 		logger.Debug.Printf("store epoch %d hash %x\n", p.Epoch, p.B.Hash())
+		logger.Error.Printf("storesMVBAValue took %v", time.Since(start))
 	}
 
 	spb := c.getSpbInstance(p.Epoch, p.Round, p.Author)
@@ -143,6 +143,9 @@ func (c *Core) handleSpbProposal(p *SPBProposal) error {
 func (c *Core) handleSpbVote(v *SPBVote) error {
 	logger.Debug.Printf("Processing SPBVote proposer %d epoch %d round %d phase %d\n", v.Proposer, v.Epoch, v.Round, v.Phase)
 
+	if _, ok := c.HaltFlags[v.Epoch]; ok {
+		return nil
+	}
 	spb := c.getSpbInstance(v.Epoch, v.Round, v.Proposer)
 	go spb.processVote(v)
 
@@ -152,10 +155,10 @@ func (c *Core) handleSpbVote(v *SPBVote) error {
 func (c *Core) handleFinish(f *Finish) error {
 	logger.Debug.Printf("Processing Finish epoch %d round %d hash %x\n", f.Epoch, f.Round, f.BlockHash)
 
-	//discard message
-	// if c.messgaeFilter(f.Epoch) {
-	// 	return nil
-	// }
+	if _, ok := c.HaltFlags[f.Epoch]; ok {
+		return nil
+	}
+
 	if flag, err := c.Aggreator.AddFinishVote(f); err != nil {
 		return err
 	} else {
@@ -188,8 +191,8 @@ func (c *Core) invokeDoneAndShare(epoch, round int64) error {
 
 		c.transmitor.Send(c.nodeID, core.NONE, done)
 		c.transmitor.Send(c.nodeID, core.NONE, share)
-		c.transmitor.RecvChannel() <- done
-		c.transmitor.RecvChannel() <- share
+		c.transmitor.SMVBARecvChannel() <- done
+		c.transmitor.SMVBARecvChannel() <- share
 
 		items, ok := c.DoneFlags[epoch]
 		if !ok {
@@ -205,10 +208,9 @@ func (c *Core) invokeDoneAndShare(epoch, round int64) error {
 func (c *Core) handleDone(d *Done) error {
 	logger.Debug.Printf("Processing Done epoch %d round %d\n", d.Epoch, d.Round)
 
-	//discard message
-	// if c.messgaeFilter(d.Epoch) {
-	// 	return nil
-	// }
+	if _, ok := c.HaltFlags[d.Epoch]; ok {
+		return nil
+	}
 
 	if flag, err := c.Aggreator.AddDoneVote(d); err != nil {
 		return err
@@ -230,10 +232,9 @@ func (c *Core) handleDone(d *Done) error {
 func (c *Core) handleElectShare(share *ElectShare) error {
 	logger.Debug.Printf("Processing ElectShare epoch %d round %d\n", share.Epoch, share.Round)
 
-	//discard message
-	// if c.messgaeFilter(share.Epoch) {
-	// 	return nil
-	// }
+	if _, ok := c.HaltFlags[share.Epoch]; ok {
+		return nil
+	}
 
 	if leader, err := c.Elector.AddShareVote(share); err != nil {
 		return err
@@ -244,6 +245,7 @@ func (c *Core) handleElectShare(share *ElectShare) error {
 	return nil
 }
 
+
 func (c *Core) processLeader(epoch, round int64) error {
 	logger.Debug.Printf("Processing Leader epoch %d round %d Leader %d\n", epoch, round, c.Elector.Leader(epoch, round))
 	if c.hasReady(epoch, round) {
@@ -252,7 +254,7 @@ func (c *Core) processLeader(epoch, round int64) error {
 				//send halt
 				halt, _ := NewHalt(c.nodeID, leader, d, epoch, round, c.sigService)
 				c.transmitor.Send(c.nodeID, core.NONE, halt)
-				c.transmitor.RecvChannel() <- halt
+				c.transmitor.SMVBARecvChannel() <- halt
 			} else {
 				//send preVote
 				var preVote *Prevote
@@ -266,7 +268,7 @@ func (c *Core) processLeader(epoch, round int64) error {
 					preVote, _ = NewPrevote(c.nodeID, leader, epoch, round, VOTE_FLAG_NO, crypto.Digest{}, c.sigService)
 				}
 				c.transmitor.Send(c.nodeID, core.NONE, preVote)
-				c.transmitor.RecvChannel() <- preVote
+				c.transmitor.SMVBARecvChannel() <- preVote
 			}
 		}
 	}
@@ -276,17 +278,21 @@ func (c *Core) processLeader(epoch, round int64) error {
 
 func (c *Core) handlePrevote(pv *Prevote) error {
 	logger.Debug.Printf("Processing Prevote epoch %d round %d hash %x\n", pv.Epoch, pv.Round, pv.BlockHash)
+	//filter message
+	if _, ok := c.HaltFlags[pv.Epoch]; ok {
+		return nil
+	}
 
 	if flag, err := c.Aggreator.AddPreVote(pv); err != nil {
 		return err
 	} else if flag == ACTION_NO {
 		vote, _ := NewFinVote(c.nodeID, pv.Leader, pv.Epoch, pv.Round, VOTE_FLAG_NO, pv.BlockHash, c.sigService)
 		c.transmitor.Send(c.nodeID, core.NONE, vote)
-		c.transmitor.RecvChannel() <- vote
+		c.transmitor.SMVBARecvChannel() <- vote
 	} else if flag == ACTION_YES {
 		vote, _ := NewFinVote(c.nodeID, pv.Leader, pv.Epoch, pv.Round, VOTE_FLAG_YES, pv.BlockHash, c.sigService)
 		c.transmitor.Send(c.nodeID, core.NONE, vote)
-		c.transmitor.RecvChannel() <- vote
+		c.transmitor.SMVBARecvChannel() <- vote
 	}
 
 	return nil
@@ -294,6 +300,11 @@ func (c *Core) handlePrevote(pv *Prevote) error {
 
 func (c *Core) handleFinvote(fv *FinVote) error {
 	logger.Debug.Printf("Processing FinVote epoch %d round %d hash %x\n", fv.Epoch, fv.Round, fv.BlockHash)
+
+	//filter message
+	if _, ok := c.HaltFlags[fv.Epoch]; ok {
+		return nil
+	}
 
 	if flag, err := c.Aggreator.AddFinVote(fv); err != nil {
 		return err
@@ -304,7 +315,7 @@ func (c *Core) handleFinvote(fv *FinVote) error {
 	} else if flag == ACTION_COMMIT {
 		halt, _ := NewHalt(c.nodeID, fv.Leader, fv.BlockHash, fv.Epoch, fv.Round, c.sigService)
 		c.transmitor.Send(c.nodeID, core.NONE, halt)
-		c.transmitor.RecvChannel() <- halt
+		c.transmitor.SMVBARecvChannel() <- halt
 	}
 
 	return nil
@@ -312,6 +323,11 @@ func (c *Core) handleFinvote(fv *FinVote) error {
 
 func (c *Core) advanceNextRound(epoch, round int64, flag int8, blockHash crypto.Digest) error {
 	logger.Debug.Printf("Processing next round [epoch %d round %d]\n", epoch, round)
+
+	//filter message
+	if _, ok := c.HaltFlags[epoch]; ok {
+		return nil
+	}
 
 	if flag == ACTION_NO { //next round block self
 		if inte := c.getSpbInstance(epoch, round, c.nodeID).GetBlockHash(); inte != nil {
@@ -329,7 +345,7 @@ func (c *Core) advanceNextRound(epoch, round int64, flag int8, blockHash crypto.
 		proposal, _ = NewSPBProposal(c.nodeID, nil, epoch, round+1, SPB_ONE_PHASE, c.sigService)
 	}
 	c.transmitor.Send(c.nodeID, core.NONE, proposal)
-	c.transmitor.RecvChannel() <- proposal
+	c.transmitor.SMVBARecvChannel() <- proposal
 
 	return nil
 }
@@ -360,7 +376,7 @@ func (c *Core) handlesMVBAOutput(epoch int64, blockHash crypto.Digest) error {
 		var zero crypto.Digest
 		for ix, digest := range b.Blockhashs {
 			if digest != zero {
-				logger.Debug.Printf("sMVBA Ouput tocommit epoch %d node &d \n", epoch, ix)
+				//logger.Debug.Printf("sMVBA Ouput tocommit epoch %d node %d \n", epoch, ix)
 				c.commitor.notifycommit <- &commitMsg{
 					round:  int(b.Epoch),
 					node:   core.NodeID(ix),
@@ -368,7 +384,7 @@ func (c *Core) handlesMVBAOutput(epoch int64, blockHash crypto.Digest) error {
 					digest: digest,
 				}
 			} else {
-				logger.Debug.Printf("sMVBA Ouput toskip epoch %d node &d \n", epoch, ix)
+				//logger.Debug.Printf("sMVBA Ouput toskip epoch %d node %d \n", epoch, ix)
 				c.commitor.notifycommit <- &commitMsg{
 					round:  int(b.Epoch),
 					node:   core.NodeID(ix),
@@ -380,9 +396,6 @@ func (c *Core) handlesMVBAOutput(epoch int64, blockHash crypto.Digest) error {
 		}
 
 	}
-	// else {
-	// 	logger.Debug.Printf("Processing retriever epoch %d \n", epoch)
-	// }
 
 	return nil
 }
