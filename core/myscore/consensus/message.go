@@ -9,8 +9,6 @@ import (
 	"strconv"
 )
 
-const MAXCOUNT int64 = 15
-
 const (
 	FLAG_YES uint8 = 0
 	FLAG_NO  uint8 = 1

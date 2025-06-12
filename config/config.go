@@ -143,6 +143,7 @@ func GenCommitteeFromFile(filename string) (core.Committee, error) {
 				Addr: info["addr"].(string),
 				Id:   core.NodeID(ID),
 				Name: name,
+				MempoolAddr: info["mempool_addr"].(string),
 			}
 		}
 		return committee, nil
@@ -157,6 +158,7 @@ func GenerateSmapleCommittee() {
 			"name":    string(crypto.EncodePublicKey(item.Name)),
 			"node_id": id,
 			"addr":    item.Addr,
+			
 		}
 	}
 	savetoFile("./.committee.json", data)

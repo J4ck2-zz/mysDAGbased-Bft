@@ -11,6 +11,8 @@ type Parameters struct {
 	RetryDelay          int    `json:"retry_delay"`
 	DelayProposal       int    `json:"deley_proposal"`
 	JudgeDelay          int    `json:"judge_delay"`
+	PayloadDelay        int    `json:"payload_delay_send"`
+	MaxPayloadNum       int    `json:"Max_Payload_Num"`
 	MaxMempoolQueenSize uint64 `json:"maxmempoolqueensize"`
 }
 
@@ -23,7 +25,9 @@ var DefaultParameters = Parameters{
 	RetryDelay:          5_000,
 	DelayProposal:       1_000,
 	JudgeDelay:          100,
-	MaxMempoolQueenSize: 1_000,
+	PayloadDelay:        50,
+	MaxPayloadNum:       15,
+	MaxMempoolQueenSize: 10_000,
 }
 
 type NodeID int
@@ -31,9 +35,10 @@ type NodeID int
 const NONE NodeID = -1
 
 type Authority struct {
-	Name crypto.PublickKey `json:"name"`
-	Id   NodeID            `json:"node_id"`
-	Addr string            `json:"addr"`
+	Name        crypto.PublickKey `json:"name"`
+	Id          NodeID            `json:"node_id"`
+	Addr        string            `json:"addr"`
+	MempoolAddr string            `json:"mempool_addr"`
 }
 
 type Committee struct {
@@ -68,6 +73,22 @@ func (c Committee) BroadCast(id NodeID) []string {
 	for nodeid, a := range c.Authorities {
 		if nodeid != id {
 			addrs = append(addrs, a.Addr)
+		}
+	}
+	return addrs
+}
+
+// mempool
+func (c Committee) MempoolAddress(id NodeID) string {
+	a := c.Authorities[id]
+	return a.MempoolAddr
+}
+
+func (c Committee) MempoolBroadCast(id NodeID) []string {
+	addrs := make([]string, 0)
+	for nodeid, a := range c.Authorities {
+		if nodeid != id {
+			addrs = append(addrs, a.MempoolAddr)
 		}
 	}
 	return addrs

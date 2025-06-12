@@ -12,10 +12,10 @@ type Message interface {
 }
 
 type Transmitor struct {
-	sender     *network.Sender
-	receiver   *network.Receiver
-	mempoolCh  chan Message //mempool内部通道
-	connectCh  chan Message //mempool和consensus通信通道
+	sender   *network.Sender
+	receiver *network.Receiver
+	// mempoolCh  chan Message //mempool内部通道
+	// connectCh  chan Message //mempool和consensus通信通道
 	smvbaCh    chan Message //smvba 消息通道
 	recvCh     chan Message //consensus通信通道
 	msgCh      chan *network.NetMessage
@@ -31,10 +31,10 @@ func NewTransmitor(
 ) *Transmitor {
 
 	tr := &Transmitor{
-		sender:     sender,
-		receiver:   receiver,
-		mempoolCh:  make(chan Message, 1_000),
-		connectCh:  make(chan Message, 1_000),
+		sender:   sender,
+		receiver: receiver,
+		// mempoolCh:  make(chan Message, 1_000),
+		// connectCh:  make(chan Message, 1_000),
 		smvbaCh:    make(chan Message, 1_000),
 		recvCh:     make(chan Message, 1_000),
 		msgCh:      make(chan *network.NetMessage, 1_000),
@@ -51,8 +51,8 @@ func NewTransmitor(
 	go func() {
 		for msg := range tr.receiver.RecvChannel() {
 			switch msg.Module() {
-			case "mempool":
-				tr.mempoolCh <- msg
+			// case "mempool":
+			// 	tr.mempoolCh <- msg
 			case "consensus":
 				tr.recvCh <- msg
 			//logger.Warn.Printf(" recvCh 长度：%d", len(tr.smvbaCh))
@@ -109,10 +109,10 @@ func (tr *Transmitor) SMVBARecvChannel() chan Message {
 	return tr.smvbaCh
 }
 
-func (tr *Transmitor) MempololRecvChannel() chan Message { //mempool部分的消息通道
-	return tr.mempoolCh
-}
+// func (tr *Transmitor) MempololRecvChannel() chan Message { //mempool部分的消息通道
+// 	return tr.mempoolCh
+// }
 
-func (tr *Transmitor) ConnectRecvChannel() chan Message { //mempool部分的消息通道
-	return tr.connectCh
-}
+// func (tr *Transmitor) ConnectRecvChannel() chan Message { //mempool部分的消息通道
+// 	return tr.connectCh
+// }

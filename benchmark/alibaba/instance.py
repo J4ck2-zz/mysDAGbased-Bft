@@ -136,6 +136,13 @@ class InstanceManager:
                         port_range= f'{self.settings.consensus_port}/{self.settings.consensus_port+4}',
                         description='Consensus port'
                     ),
+                    ecs_20140526_models.AuthorizeSecurityGroupRequestPermissions(
+                        priority='1',
+                        ip_protocol='TCP',
+                        source_cidr_ip='0.0.0.0/0',
+                        port_range= f'{self.settings.mempool_port}/{self.settings.mempool_port+4}',
+                        description='Mempool port'
+                    ),
                 ]
             )
             client.authorize_security_group_with_options(authorize_security_group_request, self.aliyun_runtime)

@@ -8,6 +8,7 @@ import (
 	"WuKong/logger"
 	"WuKong/pool"
 	"WuKong/store"
+	"WuKong/mempool"
 	"fmt"
 )
 
@@ -61,6 +62,12 @@ func NewNode(
 	_store := store.NewStore(store.NewDefaultNutsDB(storePath))
 	sigService := crypto.NewSigService(priKey, shareKey)
 
+	
+	mempoolbackchannel := make(chan crypto.Digest, 1_000)
+	connectChannel := make(chan core.Message, 1_000)
+
+	mempool := mempool.NewMempool(core.NodeID(nodeID), commitee, coreParameters, sigService, _store, txpool, mempoolbackchannel, connectChannel)
+
 	if err = consensus.Consensus(
 		core.NodeID(nodeID),
 		commitee,
@@ -68,7 +75,11 @@ func NewNode(
 		txpool,
 		_store,
 		sigService,
+		mempoolbackchannel, 
+		connectChannel,
 		commitChannel,
+		mempool,
+		
 	); err != nil {
 		logger.Error.Println(err)
 		return nil, err

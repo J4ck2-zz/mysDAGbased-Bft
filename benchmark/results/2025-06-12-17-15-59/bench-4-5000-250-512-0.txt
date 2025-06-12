@@ -1,0 +1,21 @@
+
+-----------------------------------------
+ SUMMARY:
+-----------------------------------------
+ + CONFIG:
+ Protocol: WuKong 
+ DDOS attack: False 
+ Committee size: 4 nodes
+ Input rate: 5,000 tx/s
+ Transaction size: 250 B
+ Batch size: 512 tx/Batch
+ Faults: 0 nodes
+ Execution time: 121 s
+
+ + RESULTS:
+ Consensus TPS: 24,484 tx/s
+ Consensus latency: 136 ms
+
+ End-to-end TPS: 19,913 tx/s
+ End-to-end latency: 203 ms
+-----------------------------------------

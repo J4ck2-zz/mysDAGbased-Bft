@@ -5,22 +5,25 @@ import (
 	"WuKong/crypto"
 	"WuKong/logger"
 	"WuKong/store"
+	"time"
 )
 
 type Synchronizer struct {
 	Name         core.NodeID
 	Store        *store.Store
-	Transimtor   *core.Transmitor
+	Transimtor   *Transmit
 	LoopBackChan chan crypto.Digest
+	Parameters   core.Parameters
 	//consensusCoreChan chan<- core.Messgae //只接收消息
 	interChan chan core.Message
 }
 
 func NewSynchronizer(
 	Name core.NodeID,
-	Transimtor *core.Transmitor,
+	Transimtor *Transmit,
 	LoopBackChan chan crypto.Digest,
 	//consensusCoreChan chan<- core.Messgae,
+	parameters core.Parameters,
 	store *store.Store,
 ) *Synchronizer {
 	return &Synchronizer{
@@ -28,6 +31,7 @@ func NewSynchronizer(
 		Store:        store,
 		Transimtor:   Transimtor,
 		LoopBackChan: LoopBackChan,
+		Parameters:   parameters,
 		//consensusCoreChan: consensusCoreChan,
 		interChan: make(chan core.Message, 1000),
 	}
@@ -60,9 +64,14 @@ func (sync *Synchronizer) Verify(proposer core.NodeID, Epoch int64, digests []cr
 }
 
 func (sync *Synchronizer) Run() {
+	ticker := time.NewTicker(3000 * time.Millisecond) //定时进行请求区块
+	defer ticker.Stop()
 	pending := make(map[crypto.Digest]struct {
-		Epoch  uint64
-		Notify chan<- struct{}
+		Epoch   uint64
+		Notify  chan<- struct{}
+		Missing []crypto.Digest
+		Author  core.NodeID
+		Ts      int64
 	})
 	waiting := make(chan crypto.Digest, 1_000)
 	for {
@@ -81,15 +90,18 @@ func (sync *Synchronizer) Run() {
 						waiting <- waiter(req.Missing, req.ConsensusBlockHash, *sync.Store, notify)
 					}()
 					pending[digest] = struct {
-						Epoch  uint64
-						Notify chan<- struct{}
-					}{uint64(req.Epoch), notify}
+						Epoch   uint64
+						Notify  chan<- struct{}
+						Missing []crypto.Digest
+						Author  core.NodeID
+						Ts      int64
+					}{uint64(req.Epoch), notify, req.Missing, req.Author, time.Now().UnixMilli()}
 					message := &RequestPayloadMsg{
 						Digests: req.Missing,
 						Author:  sync.Name,
 					}
 					//找作者要相关的区块
-					sync.Transimtor.Send(sync.Name, req.Author, message)
+					sync.Transimtor.MempoolSend(sync.Name, req.Author, message)
 
 					//找所有人要
 					//sync.Transimtor.Send(sync.Name, core.NONE, message)
@@ -118,6 +130,24 @@ func (sync *Synchronizer) Run() {
 					// }
 					sync.LoopBackChan <- block
 					//sync.Transimtor.RecvChannel() <- msg
+				}
+			}
+		case <-ticker.C:
+			{
+				now := time.Now().UnixMilli()
+				for digest, req := range pending {
+					if now-req.Ts >= int64(sync.Parameters.RetryDelay) {
+						logger.Debug.Printf("recycle request and len of pending is %d\n", len(pending))
+						msg := &RequestPayloadMsg{
+							Digests: req.Missing,
+							Author:  sync.Name,
+						}
+						//找所有人要
+						sync.Transimtor.MempoolSend(sync.Name, req.Author, msg)
+
+						req.Ts = now
+						pending[digest] = req
+					}
 				}
 			}
 

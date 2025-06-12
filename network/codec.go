@@ -17,14 +17,8 @@ type Codec struct {
 	decoder *gob.Decoder
 }
 
-func NewCodec(Consensustypes map[int]reflect.Type, Mempooltypes map[int]reflect.Type) *Codec {
-	var DefaultMessageTypeMap = make(map[int]reflect.Type)
-	for k, v := range Consensustypes {
-		DefaultMessageTypeMap[k] = v
-	}
-	for k, v := range Mempooltypes {
-		DefaultMessageTypeMap[k] = v
-	}
+func NewCodec(DefaultMessageTypeMap map[int]reflect.Type) *Codec {
+
 	return &Codec{
 		types: DefaultMessageTypeMap,
 	}

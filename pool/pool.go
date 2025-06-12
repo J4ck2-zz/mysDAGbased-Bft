@@ -170,3 +170,7 @@ func (p *Pool) Run() {
 func (p *Pool) GetBatch() Batch {
 	return p.queue.get()
 }
+
+func (p *Pool) BatchChannel() chan Batch {
+	return p.batchChannel
+}

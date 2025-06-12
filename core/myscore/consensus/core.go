@@ -28,6 +28,7 @@ type Core struct {
 	mempoolbackchannel chan crypto.Digest
 	pendingPayloads    map[crypto.Digest]chan *mempool.Payload // digest -> waiting channel
 	muPending          *sync.RWMutex
+	connectChannel     chan core.Message
 
 	loopBackChannel chan *Block
 	loopDigests     chan crypto.Digest
@@ -64,16 +65,20 @@ func NewCore(
 	store *store.Store,
 	sigService *crypto.SigService,
 	commitChannel chan<- *Block,
+
+	mempoolbackchannel chan crypto.Digest,
+	connectChannel chan core.Message,
+	pool *mempool.Mempool,
 ) *Core {
 	loopBackChannel := make(chan *Block, 1_000)
 	startABA := make(chan *ABAid, 1000)
 	loopDigest := make(chan crypto.Digest, 100)
-	mempoolbackchannel := make(chan crypto.Digest, 100)
+
 	notifypload := make(chan crypto.Digest, 100)
 	sMVBAStart := make(chan *SMVBAid)
 
-	Sync := mempool.NewSynchronizer(nodeID, transmitor, mempoolbackchannel, store)
-	pool := mempool.NewMempool(nodeID, committee, parameters, sigService, store, txpool, transmitor, Sync)
+	// Sync := mempool.NewSynchronizer(nodeID, transmitor, mempoolbackchannel, parameters, store)
+	// pool := mempool.NewMempool(nodeID, committee, parameters, sigService, store, txpool, transmitor, Sync)
 	corer := &Core{
 		nodeID:          nodeID,
 		committee:       committee,
@@ -91,6 +96,7 @@ func NewCore(
 		pendingPayloads:    make(map[crypto.Digest]chan *mempool.Payload),
 		muPending:          &sync.RWMutex{},
 		mempoolbackchannel: mempoolbackchannel,
+		connectChannel:     connectChannel,
 
 		localDAG:       NewLocalDAG(store, committee),
 		Aggreator:      NewAggreator(committee, sigService),
@@ -115,7 +121,7 @@ func NewCore(
 	}
 
 	corer.retriever = NewRetriever(nodeID, store, transmitor, sigService, parameters, loopBackChannel, loopDigest, corer.localDAG)
-	corer.commitor = NewCommitor(corer.localDAG, store, commitChannel, startABA, transmitor, notifypload, sMVBAStart)
+	corer.commitor = NewCommitor(corer.localDAG, store, commitChannel, startABA, connectChannel, notifypload, sMVBAStart)
 
 	return corer
 }
@@ -244,9 +250,9 @@ func (corer *Core) generatorBlock(round int) *Block {
 	if _, ok := corer.proposedFlag[round]; !ok {
 		referencechan := make(chan []crypto.Digest)
 		msg := &mempool.MakeConsensusBlockMsg{
-			MaxPayloadSize: uint64(MAXCOUNT), Payloads: referencechan,
+			Payloads: referencechan,
 		}
-		corer.transmitor.ConnectRecvChannel() <- msg
+		corer.connectChannel <- msg
 		payloads := <-referencechan
 		if round == 0 {
 			block = &Block{
@@ -272,7 +278,6 @@ func (corer *Core) generatorBlock(round int) *Block {
 	}
 
 	//BenchMark Log
-
 	if block != nil {
 		corer.proposedFlag[round] = struct{}{}
 		logger.Info.Printf("create Block round %d node %d \n", block.Round, block.Author)
@@ -330,7 +335,7 @@ func (corer *Core) checkPayloads(block *Block) mempool.VerifyStatus {
 		ConsensusBlockHash: block.Hash(),
 		Sender:             make(chan mempool.VerifyStatus),
 	}
-	corer.transmitor.ConnectRecvChannel() <- msg
+	corer.connectChannel <- msg
 	status := <-msg.Sender
 	return status
 }
@@ -358,12 +363,13 @@ func (corer *Core) handleReplyBlock(reply *ReplyBlockMsg) error {
 
 	for _, block := range reply.Blocks {
 
+		//maybe execute more one
+		storeBlock(corer.store, block)
+
 		status := corer.checkPayloads(block)
 		if status != mempool.OK {
 			continue
 		}
-		//maybe execute more one
-		storeBlock(corer.store, block)
 
 		corer.handleOutPut(block.Round, block.Author, block.Hash(), block.Reference)
 	}
@@ -394,16 +400,21 @@ func (corer *Core) handleMLoopBack(digest crypto.Digest) error {
 	//re output
 	block, _ := getBlock(corer.store, digest)
 
-	if ok, _, _ := corer.checkReference(block); ok {
-		err := corer.handleOutPut(block.Round, block.Author, block.Hash(), block.Reference)
-		if err == nil {
-			corer.loopDigests <- block.Hash()
-			logger.Warn.Printf("mloopback round-%d-node-%d  \n", block.Round, block.Author)
-		}
-		return err
+	if block == nil {
+		logger.Debug.Printf("block is nil \n")
+		return nil
 	}
 
-	return nil
+	//if ok, _, _ := corer.checkReference(block); ok {
+	err := corer.handleOutPut(block.Round, block.Author, block.Hash(), block.Reference)
+	if err == nil {
+		corer.loopDigests <- block.Hash()
+		logger.Warn.Printf("mloopback round-%d-node-%d  \n", block.Round, block.Author)
+	}
+	return err
+	//}
+
+	// return nil
 }
 
 // ABA
@@ -526,7 +537,14 @@ func (corer *Core) receivePatternCallback(back *ABABack) error {
 		}
 	} else if back.Flag == FLAG_YES { //tocommit
 		corer.localDAG.muDAG.RLock()
-		digest := corer.localDAG.localDAG[back.ExRound][back.Slot][0]
+		var digest crypto.Digest
+		slot := corer.localDAG.localDAG[back.ExRound][back.Slot]
+		if slot == nil {
+			digest = crypto.Digest{}
+		} else {
+			digest = slot[0]
+		}
+
 		corer.localDAG.muDAG.RUnlock()
 		corer.commitor.notifycommit <- &commitMsg{
 			round:  back.ExRound,
@@ -663,39 +681,6 @@ func (corer *Core) Run() {
 						err = corer.handleABAHalt(msg.(*ABAHalt))
 					case CoinShareType:
 						err = corer.handleCoinShare(msg.(*CoinShare))
-
-						// case SPBProposalType:
-						// 	start := time.Now()
-						// 	err = corer.handleSpbProposal(msg.(*SPBProposal))
-						// 	logger.Error.Printf("handleSpbProposal took %v", time.Since(start))
-						// case SPBVoteType:
-						// 	start := time.Now()
-						// 	err = corer.handleSpbVote(msg.(*SPBVote))
-						// 	logger.Error.Printf("handleSpbvote took %v", time.Since(start))
-						// case FinishType:
-						// 	start := time.Now()
-						// 	err = corer.handleFinish(msg.(*Finish))
-						// 	logger.Error.Printf("handleFinish took %v", time.Since(start))
-						// case DoneType:
-						// 	start := time.Now()
-						// 	err = corer.handleDone(msg.(*Done))
-						// 	logger.Error.Printf("handleDone took %v", time.Since(start))
-						// case ElectShareType:
-						// 	start := time.Now()
-						// 	err = corer.handleElectShare(msg.(*ElectShare))
-						// 	logger.Error.Printf("handleElectshare took %v", time.Since(start))
-						// case PrevoteType:
-						// 	start := time.Now()
-						// 	err = corer.handlePrevote(msg.(*Prevote))
-						// 	logger.Error.Printf("handlePrevote took %v", time.Since(start))
-						// case FinVoteType:
-						// 	start := time.Now()
-						// 	err = corer.handleFinvote(msg.(*FinVote))
-						// 	logger.Error.Printf("handleFinvote took %v", time.Since(start))
-						// case HaltType:
-						// 	start := time.Now()
-						// 	err = corer.handleHalt(msg.(*Halt))
-						// 	logger.Error.Printf("handleHalt took %v", time.Since(start))
 					}
 
 				}

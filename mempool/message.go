@@ -98,7 +98,6 @@ func (r *RequestPayloadMsg) Module() string {
 }
 
 type MakeConsensusBlockMsg struct {
-	MaxPayloadSize uint64 //一个共识区块包含的最大微小区块的数量
 	Payloads       chan []crypto.Digest
 }
 

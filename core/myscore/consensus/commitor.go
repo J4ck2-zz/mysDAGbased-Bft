@@ -322,7 +322,7 @@ type Commitor struct {
 	store         *store.Store
 
 	//mempool    *mempool.Mempool
-	transmitor      *core.Transmitor
+	connectChannel  chan core.Message
 	pendingPayloads map[crypto.Digest]chan struct{} // digest -> waiting channel
 	muPending       *sync.RWMutex
 	notifyPload     chan crypto.Digest
@@ -340,7 +340,7 @@ type Commitor struct {
 	sMVBAStart chan *SMVBAid
 }
 
-func NewCommitor(localDAG *LocalDAG, store *store.Store, commitChannel chan<- *Block, startABA chan<- *ABAid, t *core.Transmitor, notify chan crypto.Digest, smvba chan *SMVBAid) *Commitor {
+func NewCommitor(localDAG *LocalDAG, store *store.Store, commitChannel chan<- *Block, startABA chan<- *ABAid, mc chan core.Message, notify chan crypto.Digest, smvba chan *SMVBAid) *Commitor {
 	c := &Commitor{
 		mucDAG:        &sync.RWMutex{},
 		localDAG:      localDAG,
@@ -357,7 +357,7 @@ func NewCommitor(localDAG *LocalDAG, store *store.Store, commitChannel chan<- *B
 		judinground: 0,
 		judingnode:  0,
 
-		transmitor: t,
+		connectChannel: mc,
 		//mempool:       mempool,
 		pendingPayloads: make(map[crypto.Digest]chan struct{}),
 		muPending:       &sync.RWMutex{},
@@ -412,7 +412,7 @@ func (c *Commitor) run() {
 							Sender:             make(chan mempool.VerifyStatus),
 						}
 
-						c.transmitor.ConnectRecvChannel() <- msg
+						c.connectChannel <- msg
 						status := <-msg.Sender
 						if status != mempool.OK {
 							//  2. 等待 payload 补全（阻塞等待）

@@ -22,7 +22,11 @@ func Consensus(
 	txpool *pool.Pool,
 	store *store.Store,
 	sigService *crypto.SigService,
+
+	mempoolbackchannel chan crypto.Digest,
+	connectChannel chan core.Message,
 	commitChannel chan<- *Block,
+	mempool *mempool.Mempool,
 ) error {
 	logger.Info.Printf(
 		"Consensus Node ID: %d\n",
@@ -43,7 +47,7 @@ func Consensus(
 	}
 
 	//Step 1: invoke network
-	cc := network.NewCodec(DefaultMsgTypes,mempool.DefaultMessageTypeMap)
+	cc := network.NewCodec(DefaultMsgTypes)
 	addr := fmt.Sprintf(":%s", strings.Split(committee.Address(id), ":")[1])
 	sender, receiver := network.NewSender(cc), network.NewReceiver(addr, cc)
 	//
@@ -74,7 +78,7 @@ func Consensus(
 	time.Sleep(time.Millisecond * time.Duration(parameters.SyncTimeout))
 	txpool.Run()
 	//Step 3: start protocol
-	corer := NewCore(id, committee, parameters, txpool, transmitor, store, sigService, commitChannel)
+	corer := NewCore(id, committee, parameters, txpool, transmitor, store, sigService, commitChannel,mempoolbackchannel,connectChannel,mempool)
 
 	go corer.Run()
 
