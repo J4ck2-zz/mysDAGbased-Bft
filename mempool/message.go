@@ -87,6 +87,7 @@ type RequestPayloadMsg struct {
 	Type    uint8 //0代表方案处理请求，1代表commit处理请求
 	Digests []crypto.Digest
 	Author  core.NodeID
+	ReqId   int
 }
 
 func (r *RequestPayloadMsg) MsgType() int {
@@ -98,7 +99,7 @@ func (r *RequestPayloadMsg) Module() string {
 }
 
 type MakeConsensusBlockMsg struct {
-	Payloads       chan []crypto.Digest
+	Payloads chan []crypto.Digest
 }
 
 func (r *MakeConsensusBlockMsg) MsgType() int {

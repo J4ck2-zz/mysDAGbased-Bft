@@ -190,7 +190,7 @@ func (m *Mempool) HandleOthorPayload(payload *OtherPayloadMsg) error {
 }
 
 func (m *Mempool) HandleRequestPayload(request *RequestPayloadMsg) error {
-	logger.Debug.Printf("handle mempool RequestBlockMsg from %d\n", request.Author)
+	logger.Debug.Printf("handle mempool RequestBlockMsg reqid %d from %d\n", request.ReqId, request.Author)
 	for _, digest := range request.Digests {
 		if p, err := m.GetPayload(digest); err != nil {
 			return err
@@ -198,6 +198,7 @@ func (m *Mempool) HandleRequestPayload(request *RequestPayloadMsg) error {
 			message := &OtherPayloadMsg{
 				Payload: p,
 			}
+			logger.Debug.Printf("miss payload id %d proposer %d\n", p.Batch.ID, p.Proposer)
 			m.Transimtor.MempoolSend(m.Name, request.Author, message) //只发给向自己要的人
 		}
 	}

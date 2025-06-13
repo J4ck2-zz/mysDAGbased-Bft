@@ -13,8 +13,8 @@ def local(ctx):
     ''' Run benchmarks on localhost '''
     bench_params = {
         'nodes': 4,
-        'duration': 10,
-        'rate': 30_000,                  # tx send rate
+        'duration': 30,
+        'rate': 20_000,                  # tx send rate
         'batch_size': 1024,              # the max number of tx that can be hold 
         'log_level': 0b1111,            # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
         'protocol_name': "WuKong"
@@ -114,9 +114,9 @@ def remote(ctx):
     bench_params = {
         'nodes': [4],
         'node_instance': 1,                                             # the number of running instance for a node  (max = 4)
-        'duration': 30,
-        'rate': 6_000,                                                  # tx send rate
-        'batch_size': [512],                              # the max number of tx that can be hold 
+        'duration': 100,
+        'rate': 8_000,                                                  # tx send rate
+        'batch_size': [1024],                              # the max number of tx that can be hold 
         'log_level': 0b1111,                                            # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
         'protocol_name': "WuKong",
         'runs': 1
@@ -134,11 +134,11 @@ def remote(ctx):
             "min_block_delay": 0,       # send block delay
             "ddos": False,              # DDOS attack
             "faults": 0,                # the number of byzantine node
-            "retry_delay": 5_000,        # request block period
+            "retry_delay": 3_000,        # request block period
             "deley_proposal": 50,
             "judge_delay":10,
             "payload_delay_send":50,
-            "Max_Payload_Num":15,
+            "Max_Payload_Num":32,
             "maxmempoolqueensize":10_000
         }
     }

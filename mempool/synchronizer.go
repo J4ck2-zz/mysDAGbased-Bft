@@ -59,6 +59,7 @@ func (sync *Synchronizer) Verify(proposer core.NodeID, Epoch int64, digests []cr
 		missing, proposer, Epoch, consensusblockhash,
 	}
 	sync.interChan <- message
+
 	logger.Debug.Printf("round %d node %d miss payloads len=%d \n", Epoch, proposer, len(missing))
 	return Wait
 }
@@ -74,6 +75,7 @@ func (sync *Synchronizer) Run() {
 		Ts      int64
 	})
 	waiting := make(chan crypto.Digest, 1_000)
+	var reqid int = 0
 	for {
 		select {
 		case reqMsg := <-sync.interChan:
@@ -99,10 +101,12 @@ func (sync *Synchronizer) Run() {
 					message := &RequestPayloadMsg{
 						Digests: req.Missing,
 						Author:  sync.Name,
+						ReqId:   reqid,
 					}
 					//找作者要相关的区块
 					sync.Transimtor.MempoolSend(sync.Name, req.Author, message)
-
+					logger.Debug.Printf("send payload request reqid %d to %d \n", reqid,req.Author,)
+					reqid++
 					//找所有人要
 					//sync.Transimtor.Send(sync.Name, core.NONE, message)
 				case SyncCleanUpBlockType:
