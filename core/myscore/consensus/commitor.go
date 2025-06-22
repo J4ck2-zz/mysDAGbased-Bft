@@ -425,6 +425,7 @@ func (c *Commitor) run() {
 					if payload.Batch.ID != -1 {
 						flag = true
 						logger.Info.Printf("commit batch %d \n", payload.Batch.ID)
+
 					}
 
 				}
@@ -432,6 +433,9 @@ func (c *Commitor) run() {
 				// if len(block.PayLoads)==1&&
 				if flag {
 					logger.Info.Printf("commit Block round %d node %d \n", block.Round, block.Author)
+					c.connectChannel<-&mempool.CleanBlockMsg{
+						Digests: block.PayLoads,
+					}
 				}
 
 			}

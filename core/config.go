@@ -13,6 +13,7 @@ type Parameters struct {
 	JudgeDelay          int    `json:"judge_delay"`
 	PayloadDelay        int    `json:"payload_delay_send"`
 	MaxPayloadNum       int    `json:"Max_Payload_Num"`
+	RequestPloadDelay   int    `json:"Requst_Pload_delay"`
 	MaxMempoolQueenSize uint64 `json:"maxmempoolqueensize"`
 }
 
@@ -27,6 +28,7 @@ var DefaultParameters = Parameters{
 	JudgeDelay:          100,
 	PayloadDelay:        50,
 	MaxPayloadNum:       15,
+	RequestPloadDelay:   100,
 	MaxMempoolQueenSize: 10_000,
 }
 

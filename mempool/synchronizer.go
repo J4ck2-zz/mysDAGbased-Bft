@@ -64,6 +64,23 @@ func (sync *Synchronizer) Verify(proposer core.NodeID, Epoch int64, digests []cr
 	return Wait
 }
 
+func (sync *Synchronizer) VerifyAgain(to core.NodeID, requestmsg *RequestPayloadMsg) {
+	logger.Debug.Printf("verify again request payload msg\n")
+	var missing []crypto.Digest
+	for _, digest := range requestmsg.Digests {
+		if _, err := sync.Store.Read(digest[:]); err != nil {
+			missing = append(missing, digest)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	requestmsg.Digests = missing
+	sync.Transimtor.MempoolSend(sync.Name, to, requestmsg)
+	logger.Debug.Printf("send payload request reqid %d to %d \n", requestmsg.ReqId, to)
+
+}
+
 func (sync *Synchronizer) Run() {
 	ticker := time.NewTicker(3000 * time.Millisecond) //定时进行请求区块
 	defer ticker.Stop()
@@ -74,7 +91,7 @@ func (sync *Synchronizer) Run() {
 		Author  core.NodeID
 		Ts      int64
 	})
-	waiting := make(chan crypto.Digest, 1_000)
+	waiting := make(chan crypto.Digest, 10_000)
 	var reqid int = 0
 	for {
 		select {
@@ -104,8 +121,15 @@ func (sync *Synchronizer) Run() {
 						ReqId:   reqid,
 					}
 					//找作者要相关的区块
-					sync.Transimtor.MempoolSend(sync.Name, req.Author, message)
-					logger.Debug.Printf("send payload request reqid %d to %d \n", reqid,req.Author,)
+					if sync.Name == core.NodeID(0) {
+						logger.Debug.Printf("create payload request reqid %d to %d \n", reqid, req.Author)
+						time.AfterFunc(time.Duration(sync.Parameters.RequestPloadDelay)*time.Millisecond, func() {
+							sync.VerifyAgain(req.Author, message)
+						})
+					} else {
+						sync.Transimtor.MempoolSend(sync.Name, req.Author, message)
+						logger.Debug.Printf("send payload request reqid %d to %d \n", reqid, req.Author)
+					}
 					reqid++
 					//找所有人要
 					//sync.Transimtor.Send(sync.Name, core.NONE, message)

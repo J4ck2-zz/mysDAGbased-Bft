@@ -252,8 +252,6 @@ func (m *Mempool) HandleCleanPayload(msg *CleanBlockMsg) error {
 	for _, digest := range msg.Digests {
 		delete(m.Queue, digest)
 	}
-	//同步其他节点清理删除payload
-	m.Sync.Cleanup(uint64(msg.Epoch))
 	return nil
 }
 
@@ -292,7 +290,10 @@ func (m *Mempool) generatePayload() error {
 
 func (m *Mempool) Run() {
 	//一直广播微区块,这个时间设置需要和发块速率结合起来看，也就是rust版本里面实现的一收到一个batch就立马广播并且发块
-
+	if m.Name < core.NodeID(m.Parameters.Faults) {
+		logger.Debug.Printf("Node %d is faulty\n", m.Name)
+		return
+	}
 	go m.generatePayload()
 
 	go m.Sync.Run()

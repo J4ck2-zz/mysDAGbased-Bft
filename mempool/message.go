@@ -136,7 +136,7 @@ func (*VerifyBlockMsg) Module() string {
 
 type CleanBlockMsg struct {
 	Digests []crypto.Digest
-	Epoch   int64 //清除掉第k轮共识块引用的所有微区块
+	
 }
 
 func (l *CleanBlockMsg) MsgType() int {

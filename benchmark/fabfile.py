@@ -14,7 +14,7 @@ def local(ctx):
     bench_params = {
         'nodes': 4,
         'duration': 30,
-        'rate': 10_000,                  # tx send rate
+        'rate': 11_000,                  # tx send rate
         'batch_size': 512,              # the max number of tx that can be hold 
         'log_level': 0b1111,            # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
         'protocol_name': "WuKong"
@@ -116,7 +116,7 @@ def remote(ctx):
         'nodes': [4],
         'node_instance': 1,                                             # the number of running instance for a node  (max = 4)
         'duration': 100,
-        'rate': 8_000,                                                  # tx send rate
+        'rate': 9_000,                                                  # tx send rate
         'batch_size': 1024,                              # the max number of tx that can be hold 
         'log_level': 0b1111,                                            # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
         'protocol_name': "WuKong",
@@ -125,7 +125,7 @@ def remote(ctx):
     node_params = {
         "pool": {
             # "rate": 1_000,              # ignore: tx send rate 
-            "tx_size": 16,               # tx size
+            "tx_size": 256,               # tx size
             # "batch_size": 200,          # ignore: the max number of tx that can be hold 
             "max_queue_size": 10_000 
 	    },
@@ -138,7 +138,7 @@ def remote(ctx):
             "retry_delay": 5_000,        # request block period
             "deley_proposal": 50,
             "judge_delay":10,
-            "payload_delay_send":50,
+            "payload_delay_send":70,
             "Max_Payload_Num":5,
             "Requst_Pload_delay":1_000,
             "maxmempoolqueensize":10_000

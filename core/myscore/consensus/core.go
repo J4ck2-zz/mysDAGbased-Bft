@@ -306,7 +306,7 @@ func (corer *Core) handlePropose(propose *ProposeMsg) error {
 		corer.retriever.requestBlocks(miss, localMiss, propose.Author, propose.B.Hash())
 
 		if status := corer.checkPayloads(propose.B); status != mempool.OK {
-			logger.Debug.Printf("[round-%d-node-%d] not receive all payloads\n ", propose.Round, propose.Author)
+			logger.Debug.Printf("[round-%d-node-%d] not receive all payloads\n", propose.Round, propose.Author)
 		}
 		if localMiss != nil {
 			return ErrLocalReference(propose.MsgType(), propose.Round, int(propose.Author), len(miss), len(localMiss))
@@ -366,12 +366,12 @@ func (corer *Core) handleReplyBlock(reply *ReplyBlockMsg) error {
 		//maybe execute more one
 		storeBlock(corer.store, block)
 
+		corer.handleOutPut(block.Round, block.Author, block.Hash(), block.Reference)
+
 		status := corer.checkPayloads(block)
 		if status != mempool.OK {
 			continue
 		}
-
-		corer.handleOutPut(block.Round, block.Author, block.Hash(), block.Reference)
 	}
 
 	go corer.retriever.processReply(reply)
@@ -405,16 +405,16 @@ func (corer *Core) handleMLoopBack(digest crypto.Digest) error {
 		return nil
 	}
 
-	//if ok, _, _ := corer.checkReference(block); ok {
-	err := corer.handleOutPut(block.Round, block.Author, block.Hash(), block.Reference)
-	if err == nil {
-		corer.loopDigests <- block.Hash()
-		logger.Warn.Printf("mloopback round-%d-node-%d  \n", block.Round, block.Author)
+	if ok, _, _ := corer.checkReference(block); ok {
+		err := corer.handleOutPut(block.Round, block.Author, block.Hash(), block.Reference)
+		if err == nil {
+			corer.loopDigests <- block.Hash()
+			logger.Warn.Printf("mloopback round-%d-node-%d  \n", block.Round, block.Author)
+		}
+		return err
 	}
-	return err
-	//}
 
-	// return nil
+	return nil
 }
 
 // ABA
