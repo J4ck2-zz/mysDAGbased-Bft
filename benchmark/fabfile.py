@@ -14,8 +14,8 @@ def local(ctx):
     bench_params = {
         'nodes': 4,
         'duration': 30,
-        'rate': 20_000,                  # tx send rate
-        'batch_size': 1024,              # the max number of tx that can be hold 
+        'rate': 10_000,                  # tx send rate
+        'batch_size': 512,              # the max number of tx that can be hold 
         'log_level': 0b1111,            # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
         'protocol_name': "WuKong"
     }
@@ -28,15 +28,16 @@ def local(ctx):
 	    },
         "consensus": {
             "sync_timeout": 500,        # node sync time
-            "network_delay": 20,        # network delay
+            "network_delay": 100,        # network delay
             "min_block_delay": 0,       # send block delay
             "ddos": False,              # DDOS attack
             "faults": 0,                # the number of byzantine node
             "retry_delay": 1000,        # request block period
             "deley_proposal": 50,
             "judge_delay":10,
-            "payload_delay_send":50,
-            "Max_Payload_Num":15,
+            "payload_delay_send":50,    # send delay self payload
+            "Max_Payload_Num":15,       #a bloack include payload nums
+            "Requst_Pload_delay":20,   #send requestpayloadmsg delay
             "maxmempoolqueensize":10_000
         }
     }
@@ -116,7 +117,7 @@ def remote(ctx):
         'node_instance': 1,                                             # the number of running instance for a node  (max = 4)
         'duration': 100,
         'rate': 8_000,                                                  # tx send rate
-        'batch_size': [1024],                              # the max number of tx that can be hold 
+        'batch_size': 1024,                              # the max number of tx that can be hold 
         'log_level': 0b1111,                                            # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
         'protocol_name': "WuKong",
         'runs': 1
@@ -124,21 +125,22 @@ def remote(ctx):
     node_params = {
         "pool": {
             # "rate": 1_000,              # ignore: tx send rate 
-            "tx_size": 250,               # tx size
+            "tx_size": 16,               # tx size
             # "batch_size": 200,          # ignore: the max number of tx that can be hold 
-            "max_queue_size": 100_000 
+            "max_queue_size": 10_000 
 	    },
         "consensus": {
-            "sync_timeout": 500,        # node sync time
-            "network_delay": 20,        # network delay
+            "sync_timeout": 1_000,        # node sync time
+            "network_delay": 1_000,        # network delay
             "min_block_delay": 0,       # send block delay
             "ddos": False,              # DDOS attack
             "faults": 0,                # the number of byzantine node
-            "retry_delay": 3_000,        # request block period
+            "retry_delay": 5_000,        # request block period
             "deley_proposal": 50,
             "judge_delay":10,
             "payload_delay_send":50,
-            "Max_Payload_Num":32,
+            "Max_Payload_Num":5,
+            "Requst_Pload_delay":1_000,
             "maxmempoolqueensize":10_000
         }
     }

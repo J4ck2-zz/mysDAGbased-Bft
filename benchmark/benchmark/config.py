@@ -85,6 +85,7 @@ class NodeParameters:
             inputs += [json['consensus']['judge_delay']]
             inputs += [json['consensus']['payload_delay_send']]
             inputs += [json['consensus']['Max_Payload_Num']]
+            inputs += [json['consensus']['Requst_Pload_delay']]
             inputs += [json['pool']['tx_size']]
             inputs += [json['pool']['max_queue_size']]
         except KeyError as e:
