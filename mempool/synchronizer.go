@@ -82,7 +82,7 @@ func (sync *Synchronizer) VerifyAgain(to core.NodeID, requestmsg *RequestPayload
 }
 
 func (sync *Synchronizer) Run() {
-	ticker := time.NewTicker(3000 * time.Millisecond) //定时进行请求区块
+	ticker := time.NewTicker(time.Duration(sync.Parameters.RetryDelay) * time.Millisecond) //定时进行请求区块
 	defer ticker.Stop()
 	pending := make(map[crypto.Digest]struct {
 		Epoch   uint64
@@ -121,7 +121,7 @@ func (sync *Synchronizer) Run() {
 						ReqId:   reqid,
 					}
 					//找作者要相关的区块
-					if sync.Name == core.NodeID(0) {
+					if sync.Name == core.NodeID(100) {
 						logger.Debug.Printf("create payload request reqid %d to %d \n", reqid, req.Author)
 						time.AfterFunc(time.Duration(sync.Parameters.RequestPloadDelay)*time.Millisecond, func() {
 							sync.VerifyAgain(req.Author, message)
@@ -171,7 +171,7 @@ func (sync *Synchronizer) Run() {
 							Author:  sync.Name,
 						}
 						//找所有人要
-						sync.Transimtor.MempoolSend(sync.Name, req.Author, msg)
+						sync.Transimtor.MempoolSend(sync.Name, core.NONE, msg)
 
 						req.Ts = now
 						pending[digest] = req

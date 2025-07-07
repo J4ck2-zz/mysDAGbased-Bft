@@ -368,10 +368,10 @@ func (corer *Core) handleReplyBlock(reply *ReplyBlockMsg) error {
 
 		corer.handleOutPut(block.Round, block.Author, block.Hash(), block.Reference)
 
-		status := corer.checkPayloads(block)
-		if status != mempool.OK {
-			continue
-		}
+		// status := corer.checkPayloads(block)
+		// if status != mempool.OK {
+		// 	continue
+		// }
 	}
 
 	go corer.retriever.processReply(reply)
