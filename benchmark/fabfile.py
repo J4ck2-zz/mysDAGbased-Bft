@@ -14,7 +14,7 @@ def local(ctx):
     bench_params = {
         'nodes': 4,
         'duration': 30,
-        'rate': 11_000,                  # tx send rate
+        'rate': 15_000,                  # tx send rate
         'batch_size': 512,              # the max number of tx that can be hold 
         'log_level': 0b1111,            # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
         'protocol_name': "WuKong"
@@ -116,7 +116,7 @@ def remote(ctx):
         'nodes': [4],
         'node_instance': 1,                                             # the number of running instance for a node  (max = 4)
         'duration': 100,
-        'rate': 11_000,                                                  # tx send rate
+        'rate': 10_500,                                                  # tx send rate
         'batch_size': 1024,                              # the max number of tx that can be hold 
         'log_level': 0b1111,                                            # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
         'protocol_name': "mysBasedBft",
@@ -135,12 +135,12 @@ def remote(ctx):
             "min_block_delay": 0,       # send block delay
             "ddos": False,              # DDOS attack
             "faults": 0,                # the number of byzantine node
-            "retry_delay": 5_000,        # request block period
-            "deley_proposal": 50,
+            "retry_delay": 10_000,        # request block period
+            "deley_proposal": 100,
             "judge_delay":10,
             "payload_delay_send":100,
             "Max_Payload_Num":15,
-            "Requst_Pload_delay":1_000,
+            "Requst_Pload_delay":10_000,
             "maxmempoolqueensize":10_000
         }
     }
