@@ -191,16 +191,40 @@ func (m *Mempool) HandleOthorPayload(payload *OtherPayloadMsg) error {
 
 func (m *Mempool) HandleRequestPayload(request *RequestPayloadMsg) error {
 	logger.Debug.Printf("handle mempool RequestBlockMsg reqid %d from %d\n", request.ReqId, request.Author)
+	var payloads []*Payload
 	for _, digest := range request.Digests {
 		if p, err := m.GetPayload(digest); err != nil {
-			return err
+			logger.Warn.Println(err)
 		} else {
-			message := &OtherPayloadMsg{
-				Payload: p,
-			}
+			payloads = append(payloads, p)
 			logger.Debug.Printf("miss payload id %d proposer %d\n", p.Batch.ID, p.Proposer)
-			m.Transimtor.MempoolSend(m.Name, request.Author, message) //只发给向自己要的人
 		}
+	}
+	// 分批发送，每次最多 5 个
+	const batchSize = 5
+	total := len(payloads)
+	for i := 0; i < total; i += batchSize {
+		end := min(i+batchSize, total)
+
+		message := &ReplyPayloadRequestMsg{
+			Payload: payloads[i:end],
+			Author:  m.Name,
+		}
+		m.Transimtor.MempoolSend(m.Name, request.Author, message)
+	}
+	return nil
+}
+
+func (m *Mempool) handleReplyPayloadMsg(msg *ReplyPayloadRequestMsg) error {
+	if uint64(len(m.Queue)+len(m.SelfQueue)) >= m.Parameters.MaxMempoolQueenSize {
+		return ErrFullMemory(m.Name)
+	}
+	for _, payload := range msg.Payload {
+		if err := m.StorePayload(payload); err != nil {
+			return err
+		}
+		m.Queue[payload.Hash()] = struct{}{}
+		logger.Info.Printf("receive batch %d author%d from %d\n", payload.Batch.ID, payload.Proposer, msg.Author)
 	}
 	return nil
 }
@@ -272,7 +296,7 @@ func (m *Mempool) HandleVerifyMsg(msg *VerifyBlockMsg) VerifyStatus {
 // 	return nil
 // }
 
-func (m *Mempool) generatePayload() error {
+func (m *Mempool) generatePayload() {
 	batchChannal := m.TxPool.BatchChannel()
 	for batch := range batchChannal {
 		payload, _ := NewPload(m.Name, batch, m.SigService)
@@ -282,10 +306,12 @@ func (m *Mempool) generatePayload() error {
 				Payload: payload,
 			}
 			m.Transimtor.MempoolChannel() <- ownmessage
-
+		}
+		if m.TxPool.Parameters.Rate > 9000 {
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
-	return nil
+
 }
 
 func (m *Mempool) Run() {
@@ -340,6 +366,10 @@ func (m *Mempool) Run() {
 				case RequestPayloadType:
 					{
 						err = m.HandleRequestPayload(msg.(*RequestPayloadMsg))
+					}
+				case ReplyPayloadRequestType:
+					{
+						err = m.handleReplyPayloadMsg(msg.(*ReplyPayloadRequestMsg))
 					}
 				}
 			}

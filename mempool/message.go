@@ -98,6 +98,19 @@ func (r *RequestPayloadMsg) Module() string {
 	return "mempool"
 }
 
+type ReplyPayloadRequestMsg struct {
+	Payload []*Payload
+	Author  core.NodeID
+}
+
+func (r *ReplyPayloadRequestMsg) MsgType() int {
+	return ReplyPayloadRequestType
+}
+
+func (r *ReplyPayloadRequestMsg) Module() string {
+	return "mempool"
+}
+
 type MakeConsensusBlockMsg struct {
 	Payloads chan []crypto.Digest
 }
@@ -204,6 +217,7 @@ const (
 	SyncBlockType
 	SyncCleanUpBlockType
 	LoopBackMempoolType
+	ReplyPayloadRequestType
 )
 
 var DefaultMessageTypeMap = map[int]reflect.Type{
@@ -216,4 +230,5 @@ var DefaultMessageTypeMap = map[int]reflect.Type{
 	SyncBlockType:        reflect.TypeOf(SyncBlockMsg{}),
 	SyncCleanUpBlockType: reflect.TypeOf(SyncCleanUpBlockMsg{}),
 	LoopBackMempoolType:  reflect.TypeOf(LoopBackMempoolMsg{}),
+	ReplyPayloadRequestType: reflect.TypeOf(ReplyPayloadRequestMsg{}),
 }

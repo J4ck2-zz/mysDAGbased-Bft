@@ -113,7 +113,7 @@ func (maker *txMaker) run(txChannel chan<- Transaction) {
 }
 
 type Pool struct {
-	parameters   Parameters
+	Parameters   Parameters
 	queue        *txQueue
 	maker        *txMaker
 	txChannel    chan Transaction
@@ -141,7 +141,7 @@ func NewPool(parameters Parameters, N, Id int) *Pool {
 
 	batchChannel, txChannel := make(chan Batch, 1_000), make(chan Transaction, 10_000)
 	p := &Pool{
-		parameters:   parameters,
+		Parameters:   parameters,
 		txChannel:    txChannel,
 		batchChannel: batchChannel,
 	}

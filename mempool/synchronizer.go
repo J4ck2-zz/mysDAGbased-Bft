@@ -121,8 +121,16 @@ func (sync *Synchronizer) Run() {
 						ReqId:   reqid,
 					}
 					//找作者要相关的区块
-					if sync.Name == core.NodeID(100) {
-						logger.Debug.Printf("create payload request reqid %d to %d \n", reqid, req.Author)
+					if reqid >1000{
+						time.AfterFunc(time.Duration(sync.Parameters.RequestPloadDelay*5)*time.Millisecond, func() {
+							sync.VerifyAgain(req.Author, message)
+						})
+					}else if reqid > 500 {
+						time.AfterFunc(time.Duration(sync.Parameters.RequestPloadDelay*2)*time.Millisecond, func() {
+							sync.VerifyAgain(req.Author, message)
+						})
+					} else if reqid > 200 {
+						// logger.Debug.Printf("create payload request reqid %d to %d \n", reqid, req.Author)
 						time.AfterFunc(time.Duration(sync.Parameters.RequestPloadDelay)*time.Millisecond, func() {
 							sync.VerifyAgain(req.Author, message)
 						})
@@ -162,19 +170,23 @@ func (sync *Synchronizer) Run() {
 			}
 		case <-ticker.C:
 			{
-				now := time.Now().UnixMilli()
-				for digest, req := range pending {
-					if now-req.Ts >= int64(sync.Parameters.RetryDelay) {
-						logger.Debug.Printf("recycle request and len of pending is %d\n", len(pending))
-						msg := &RequestPayloadMsg{
-							Digests: req.Missing,
-							Author:  sync.Name,
-						}
-						//找所有人要
-						sync.Transimtor.MempoolSend(sync.Name, core.NONE, msg)
+				logger.Debug.Printf("recycle request start,length is %d\n", len(pending))
+				if len(pending) < 20 {
+					now := time.Now().UnixMilli()
+					for digest, req := range pending {
+						if now-req.Ts >= int64(sync.Parameters.RetryDelay) {
+							logger.Debug.Printf("recycle request and len of pending is %d\n", len(pending))
+							msg := &RequestPayloadMsg{
+								Digests: req.Missing,
+								Author:  sync.Name,
+								ReqId:   -1,
+							}
+							//找所有人要
+							sync.Transimtor.MempoolSend(sync.Name, core.NONE, msg)
 
-						req.Ts = now
-						pending[digest] = req
+							req.Ts = now
+							pending[digest] = req
+						}
 					}
 				}
 			}
